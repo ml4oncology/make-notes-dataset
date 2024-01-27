@@ -34,15 +34,7 @@ In order to set up the necessary environment:
 
 Optional and needed only once after `git clone`:
 
-3. install several [pre-commit] git hooks with:
-   ```bash
-   pre-commit install
-   # You might also want to run `pre-commit autoupdate`
-   ```
-   and checkout the configuration under `.pre-commit-config.yaml`.
-   The `-n, --no-verify` flag of `git commit` can be used to deactivate pre-commit hooks temporarily.
-
-4. install [nbstripout] git hooks to remove the output cells of committed notebooks with:
+3. install [nbstripout] git hooks to remove the output cells of committed notebooks with:
    ```bash
    nbstripout --install --attributes notebooks/.gitattributes
    ```
@@ -89,11 +81,8 @@ Then take a look into the `scripts` and `notebooks` folders.
 ├── setup.cfg               <- Declarative configuration of your project.
 ├── setup.py                <- [DEPRECATED] Use `python setup.py develop` to install for
 │                              development or `python setup.py bdist_wheel` to build.
-├── src
-│   └── make_notes_dataset  <- Actual Python package where the main functionality goes.
-├── .coveragerc             <- Configuration for coverage reports of unit tests.
-├── .isort.cfg              <- Configuration for git hook that sorts imports.
-└── .pre-commit-config.yaml <- Configuration of pre-commit git hooks.
+└── src
+    └── make_notes_dataset  <- Actual Python package where the main functionality goes.
 ```
 
 <!-- pyscaffold-notes -->
