@@ -25,6 +25,10 @@ def mergeNotes(dataDir, saveDir, filePartMin, filePartMax):
     mergedNotes = pd.concat( mergedNotesList )
     # mergedNotes['e_mail_address'] = mergedNotes['e_mail_address'].astype(str)
 
+    mergedNotes['visitDate'] = pd.to_datetime( mergedNotes['visitDate'], utc=True )
+    mergedNotes['lastUpdated'] = pd.to_datetime( mergedNotes['lastUpdated'].apply( lambda x: x.replace('T', ' ').replace('Z','')[:19] ),\
+                                                 utc=True, format='%Y-%m-%d %H:%M:%S' )
+
     mergedNotes.to_parquet(f'{saveDir}/merged_processed_clinicalNotes.parquet.gzip', compression='gzip', index=False)
 
 if __name__ == "__main__":

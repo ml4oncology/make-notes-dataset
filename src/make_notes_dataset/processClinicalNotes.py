@@ -114,7 +114,52 @@ def processPhysician( df ):
 
     return df
 
-def processClinicalNotes(dataDir, saveDir, MRNfile, filePartNum):
+def getLastUpdated(jsonDir, filePartNum, procNames):
+    """
+        Extract the lastUpdated column from the raw json file since it's not present
+        in the processed CSV files.
+
+        jsonDir: directory where the raw json files are saved
+        filePartNum: file part number to be processed
+        procNames: list of procedure names of interest
+    """
+    # load the json file
+    fileName = f"2Blast_part4_{filePartNum}_results_with_status_dates.zip"
+    filePath = jsonDir + '/' + fileName
+
+    jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_results_with_status_dates.json'
+    if not os.path.isfile( jsonFileName ):
+        os.system(f"unzip {filePath} -d {jsonDir}")
+    
+    with open( jsonFileName ) as json_file:
+        data = json.load(json_file)
+
+    # tabulate patient id, obs id, last updated
+    
+    # procedure names of interest
+    procNames = [x.lower() for x in procNames]
+
+    patientList = []
+    obsIDList = []
+    lastUpdatedList = []
+
+    for idx in range(len(data)):
+        nObs = len(data[idx]['Observations'])
+        for jdx in range(nObs):
+            if str(data[idx]['Observations'][jdx]['ProcName']).lower() in procNames:
+                patientList.append( data[idx]['PATIENT_RESEARCH_ID'] )
+                obsIDList.append( data[idx]['Observations'][jdx]['Observation']['_id'] )
+                lastUpdatedList.append( data[idx]['Observations'][jdx]['Observation']['meta']['lastUpdated'] )
+
+    # delete json file
+    os.system(f"rm {jsonDir}/2Blast_part4_{filePartNum}_results_with_status_dates.json")
+
+    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'Observations.Observation._id': obsIDList, 'lastUpdated': lastUpdatedList} )
+
+    return dfLastUpdated
+    
+
+def processClinicalNotes(dataDir, jsonDir, saveDir, MRNfile, filePartNum):
     """
         Process each part of the data pulled by CDI team. Restrict to a few procedures only.
         Resulting data frame is a single row for each visit of a patient. Row includes information
@@ -122,6 +167,7 @@ def processClinicalNotes(dataDir, saveDir, MRNfile, filePartNum):
         as well as the clinical note for that visit.
 
         dataDir: directory path where the raw zip files are saved
+        jsonDir: directory path where the raw json files are saved
         saveDir: directory path where processed data frame will be saved
         MRNfile: file path for patient code to MRN map
         filePartNum: file part number to be processed
@@ -239,6 +285,10 @@ def processClinicalNotes(dataDir, saveDir, MRNfile, filePartNum):
     # apply correction to the physician name
     pivotDataDF = processPhysician( pivotDataDF )
 
+    # extract and merge lastUpdated column
+    dfLastUpdated = getLastUpdated(jsonDir, filePartNum, procNames)
+    pivotDataDF = pivotDataDF.merge( dfLastUpdated, how='left', on=['PATIENT_RESEARCH_ID', 'Observations.Observation._id'] )
+
     # save extracted data
     pivotDataDF.to_csv( f"{saveDir}/processedClinicalNotes_{filePartNum}.csv" )
 
@@ -250,9 +300,10 @@ def processClinicalNotes(dataDir, saveDir, MRNfile, filePartNum):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("dataDir", help = "data directory", type = str) # data directory
+    parser.add_argument("jsonDir", help = "json directory", type = str) # json directory
     parser.add_argument("saveDir", help = "save directory", type = str) # save directory
     parser.add_argument("MRNfile", help = "MRN file", type = str) # file where MRN is saved
     parser.add_argument("filePartNum", help = "file part number", type = int) # file part number
     args = parser.parse_args()
 
-    processClinicalNotes( args.dataDir, args.saveDir, args.MRNfile, args.filePartNum )
+    processClinicalNotes( args.dataDir, args.jsonDir, args.saveDir, args.MRNfile, args.filePartNum )

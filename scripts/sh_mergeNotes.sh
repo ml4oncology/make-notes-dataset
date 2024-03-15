@@ -3,7 +3,7 @@ export PATH=$PATH:$(pwd)
 
 userName="t127556uhn"
 memory=16
-condaEnv="~/anaconda3/envs/basic/bin/python"
+condaEnv="~/miniforge3/envs/basic/bin/python"
 nGPU=0
 
 dataDir="/cluster/projects/gliugroup/2BLAST/clinical_notes/HealthReportRecords/results_status_dates/processed/dataframes"
