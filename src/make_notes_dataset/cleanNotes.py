@@ -28,6 +28,9 @@ def cleanNotes(dataDir, saveDir):
     mask_nullDates = mergedNotes['dateInNote'].isnull()
     mergedNotes.loc[ mask_nullDates, 'processed_date' ] = mergedNotes.loc[ mask_nullDates, 'visitDate' ]
 
+    # check that there is no-nan entry in the processed date
+    assert sum( mergedNotes['processed_date'].isnull() ) == 0 , "There is a nan date in the processed dates."
+
     # delete duplicates
     mergedNotes['job_id'] = mergedNotes['clinical_notes'].apply( lambda x: extractJobNum(x) )
     # find notes with duplicity more than 1
@@ -40,6 +43,11 @@ def cleanNotes(dataDir, saveDir):
     # group by MRN, procedure name, and job id
     filteredRecords = toClean_mergedNotes.groupby(['MRN', 'Observations.ProcName', 'job_id']).first().reset_index()
 
+    # check that for the same job id and procedure name, there are no duplicates anymore
+    dfWithJobID = filteredRecords.loc[ filteredRecords['job_id'].notnull() ].copy()
+    dfJobIDCount = dfWithJobID.groupby(['MRN', 'Observations.ProcName', 'job_id']).size().reset_index( name='job_id_count' )
+    assert dfJobIDCount['job_id_count'].max() == 1, "There is a duplicate record with the same procedure name."
+    
     print('Number of duplicate records dropped: ', toClean_mergedNotes.shape[0] - filteredRecords.shape[0])
 
     # filtered notes
