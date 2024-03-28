@@ -92,11 +92,17 @@ def helperDateFromNote( x, date_descrip ):
     
     exists = 0
 
+    # some have a newline after the date description
     idx = x.lower().find(date_descrip)
-    x = x[idx:]
-    if x.find('\n') > len(date_descrip) + 7 and x.find('\n') < len(date_descrip) + 20:
+    date_descrip_nl = date_descrip + '\n'
+    if x.lower().find(date_descrip_nl) != -1:
+        idx = x.lower().find(date_descrip_nl)
+        date_descrip = date_descrip_nl
+
+    x = x[idx + len(date_descrip):]
+    if x.find('\n') > 7 and x.find('\n') < 20:
         exists = 1
-    elif x.find('<div>') > len(date_descrip) + 7 and x.find('<div>') < len(date_descrip) + 20:
+    elif x.find('<div>') > 7 and x.find('<div>') < 20:
         exists = 1
         
     if exists == 1:
@@ -111,7 +117,7 @@ def helperDateFromNote( x, date_descrip ):
         else:
             idx_div = len(x)
         idx_stop = min( idx_nl, idx_div )
-        date_str = x[len(date_descrip):idx_stop]
+        date_str = x[:idx_stop]
         
         # strip out extra spaces
         date_str = re.sub(' +', ' ', date_str)
