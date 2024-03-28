@@ -39,6 +39,207 @@ def processDate( df ):
 
     return df
 
+def extractDateFromNote( x ):
+    """
+    Extract the date from note. This is heuristic and based on trial and error.
+    It is not perfect and all-encompassing.
+    Case 1: If it's a radiation therapy note --
+    Check if Radiation Therapy Note (originally entered in Mosaiq on * @ *)
+    exists in note
+    Case 2: 
+    Check if note has "date of *:" string, followed by a new
+    line character to extract the date
+
+    x: A string representing the clinical note
+    """
+
+    # Case 1
+    pattern = r'Radiation Therapy Note \(originally entered in Mosaiq on (\w{3} \d{2}, \d{4}) @ \d{2}:\d{2}\)'
+    match = re.search(pattern, x)
+    if match:
+        date_string = match.group(1)
+        return date_string
+        
+    # Case 2
+    date_description_list = ['date of visit:', 'date of procedure:', 'date of surgery:', 'date of op:',\
+                             'date of operation:', 'date of or:', 'date of service:',\
+                             'date of the procedure:', 'date of assessment:']
+    xLower = x.lower()
+    inText = [ 1 if elem in xLower else 0 for elem in date_description_list ]
+    if sum( inText ) == 0:
+        return None
+    else:
+        nonzero_descriptor_id = [idx for idx, val in enumerate(inText) if val != 0]
+        return helperDateFromNote(x, date_description_list[ nonzero_descriptor_id[0] ])
+
+    
+def helperDateFromNote( x, date_descrip ):
+    """
+    Helper function for extracting date from note in cases where a substring of the form
+    "date of *" is present.
+
+    x: A string representing the clinical note
+    date_descrip: A string that indicates the date of the visit. Of the form "date of *"
+    """
+
+    # find the first string
+    try:
+        clear_nl = x.find(next(filter(str.isalpha, x)))
+        x = x[clear_nl:]
+    
+    except StopIteration:
+        return None
+    
+    exists = 0
+
+    idx = x.lower().find(date_descrip)
+    x = x[idx:]
+    if x.find('\n') > len(date_descrip) + 7 and x.find('\n') < len(date_descrip) + 20:
+        exists = 1
+    elif x.find('<div>') > len(date_descrip) + 7 and x.find('<div>') < len(date_descrip) + 20:
+        exists = 1
+        
+    if exists == 1:
+
+        # find what separates (\n or <div>) from the text that follows
+        if '\n' in x:
+            idx_nl = x.find('\n')
+        else:
+            idx_nl = len(x)
+        if '<div>' in x:
+            idx_div = x.find('<div>')
+        else:
+            idx_div = len(x)
+        idx_stop = min( idx_nl, idx_div )
+        date_str = x[len(date_descrip):idx_stop]
+        
+        # strip out extra spaces
+        date_str = re.sub(' +', ' ', date_str)
+        # strip out "."
+        date_str = date_str.replace(".","")
+        
+        if date_str[0] == ' ':
+            date_str = date_str[1:]
+
+        # if there are more than 4 digits, exclude
+        list_year = re.findall(r"[0-9]{4}[0-9]", date_str)
+        if len(list_year) > 0:
+            return None
+        
+        # strip out "-"
+        # may be problematic for some notes but we can adjust this later
+        # by taking the EPR date instead
+        date_str = date_str.replace("-","")
+        
+        # exclude things like 26 Jul 2017 1545-1
+        list_year = re.findall(r"[0-9]{4}", date_str)
+        if len(list_year) > 0:
+            idx_year = date_str.find( list_year[0] )
+            date_str = date_str[ :idx_year+4 ]
+        else:
+            # if there are no 4 digits for the year, exclude
+            return None
+
+        return date_str
+    
+    else:
+        return None    
+
+def extractJobNum( x ):
+    """
+    Extract job number from the note if possible. This is heuristic 
+    and based on trial and error. It is not perfect and all-encompassing.
+
+    Case 1: "job#" string is present
+    Case 2: "dictated but not read" string is present
+
+    x: A string representing the clinical note     
+    """
+
+    x = x.lower()
+
+    if 'job#:' in x:
+    
+        # find the index of job#: 
+        title_str = 'job#:'
+        idx = x.find(title_str)
+        title_str_nl = 'job#:\n'
+        if x.find(title_str_nl) != -1:
+            idx = x.find(title_str_nl)
+            title_str = title_str_nl
+        # filter to this substring only
+        xJob = x[idx+len(title_str):]
+
+        # find the first \n
+        idxNL = xJob.find('\n')
+
+        # extract job#
+        jobID = str(xJob[:idxNL])
+        # remove extra white spaces
+        jobID = re.sub(' +', '', jobID)
+
+        return jobID 
+    
+    elif 'dictated but not read' in x:
+        
+        jobID = helperExtractJobID_DictatedNotRead(x, 1)
+
+        if jobID == None:
+            return jobID
+        elif any(chr.isalpha() for chr in jobID):
+            jobID = helperExtractJobID_DictatedNotRead(x, 0)
+        
+        return jobID
+
+def helperExtractJobID_DictatedNotRead(x, first):
+    """
+    Helper function to extract job number from note if 'dictated but
+    not read' string is present.
+    
+    x: A string representing the clinical note
+    first: Boolean indicating whether to search for the first (1) or
+           last (0) occurrence of 'dictated but not read'
+    """
+
+    # find position index of dictated but not read
+    strToSearch = 'dictated but not read'
+    if first == 1:
+        # first occurrence
+        idx = x.find( strToSearch )
+    else:
+        # last occurrence
+        idx = x.rfind( strToSearch )
+    # filter to this substring only
+    xJob = x[idx:]
+
+    #xJob = xJob[idxNL+1:]
+    xJob = xJob[len(strToSearch)+1:]
+
+    # find transcribed by
+    endIdx = xJob.find('transcribed by')
+
+    if endIdx == -1:
+        return None
+
+    jobID = xJob[:endIdx]
+    jobID = jobID.replace("\n","")
+    jobID = re.sub(' +', '', jobID)
+
+    # handle special cases
+    jobID = jobID.replace("-re-dictation","")
+    jobID = jobID.replace("jobid","")
+    jobID = jobID.replace("statnote","")
+    jobID = jobID.replace("stat","")
+    jobID = jobID.replace("job#","")
+    jobID = jobID.replace("redictation","")
+    jobID = jobID.replace("-redictation","")
+    jobID = jobID.replace("-","")
+
+    if jobID == '' or not any(chr.isdigit() for chr in jobID):
+        return None
+    else:
+        return jobID
+
 def stripTitle(x):
     """
     Strip title and single letters from name.
