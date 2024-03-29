@@ -98,6 +98,16 @@ This is a brief description of the notebooks in this repository.
 * 1.validation-validation-PlotNote_PatientCount.ipynb
    - Produce plots to validate counts of clinical notes in the dataset.
 
+## Procedure for cleaning the data set
+
+* Visit date: Use date extracted from the clinical note, if possible. Otherwise, use EPR date. If extracted date is out of bounds, use EPR date instead. In general, the date extracted from the clinical note precedes the EPR date.
+
+* Duplicates: Only drop duplicate clinical notes if job number can be extracted. For clinical notes with the same procedure name and same job number, only retain the clinical note with the most recent last updated date.
+
+* Filtering patients to study period: Drop all records outside the study period. Drop patients whose first visit is outside the study period
+
+
+
 <!-- pyscaffold-notes -->
 
 ## Note
