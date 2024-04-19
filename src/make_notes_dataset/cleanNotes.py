@@ -27,6 +27,7 @@ def cleanNotes(dataDir, saveDir):
     mergedNotes.loc[ mask_dateOutOfRange, 'processed_date' ] = mergedNotes.loc[ mask_dateOutOfRange, 'visitDate' ]
     mask_nullDates = mergedNotes['dateInNote'].isnull()
     mergedNotes.loc[ mask_nullDates, 'processed_date' ] = mergedNotes.loc[ mask_nullDates, 'visitDate' ]
+    mergedNotes.rename(columns={"visitDate": "EPRDate"}, inplace=True)
 
     # check that there is no-nan entry in the processed date
     assert sum( mergedNotes['processed_date'].isnull() ) == 0 , "There is a nan date in the processed dates."
@@ -53,7 +54,7 @@ def cleanNotes(dataDir, saveDir):
     # filtered notes
     mergedNotesDropDuplicates = pd.concat([mergedNotes.loc[ ~mergedNotes['job_id'].isin(jobIdWDuplicates) ], filteredRecords]).reset_index()
 
-    colsToKeep = ['MRN', 'Observations.ProcName', 'processed_physician_name', 'processed_date', 'clinical_notes', ]
+    colsToKeep = ['MRN', 'Observations.ProcName', 'processed_physician_name', 'processed_date', 'clinical_notes', 'EPRDate']
     mergedNotesDropDuplicates[colsToKeep].to_parquet(f'{saveDir}/merged_processed_cleaned_clinicalNotes.parquet.gzip', compression='gzip', index=False)
 
 if __name__ == "__main__":
