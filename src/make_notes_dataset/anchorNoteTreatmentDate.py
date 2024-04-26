@@ -15,7 +15,7 @@ sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/clinical_notes/HealthRepo
 from constants import aliasDictionary
 
 def anchorNoteTreatmentDate(dataPath, treatmentDataPath, targetDataPath, saveDir, configName,\
-                             testStartDate, testEndDate, eventName, lookbackWin):
+                            testEndDate, eventName, lookbackWin):
     """
         Anchor the note to treatment date depending on specified configuration.
         Generate train, validation, test split.
@@ -25,11 +25,9 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, targetDataPath, saveDir
         targetDataPath: file path of the target data frame
         saveDir: directory path where processed data frame will be saved
         configName: configuration name for how to anchor note to treatment date
-        testStartDate: starting date for the test time period
         testEndDate: ending date for the test time period (and end date of the study period)
         eventName: name of event
         lookbackWin: lookback window for the notes to be anchored to treatment date
-        
     """
 
     # load notes file
@@ -64,7 +62,7 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, targetDataPath, saveDir
 
     # filter the treatment-centered data frame
     df_treat = df_treat.loc[ df_treat['mrn'].isin( mergedNotes['mrn'].unique() ) ]
-    # filter out records if treatment date is past 2017
+    # filter out records if treatment date is past 2017, the end date of the study period
     df_treat = df_treat.loc[ df_treat['treatment_date'] <= testEndDate ]
 
     # attach notes to treatment dataframe
@@ -84,26 +82,18 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, targetDataPath, saveDir
         df_treat = get_event_labels(df_treat, df_target, event_name='ED_visit', extra_cols=['CTAS_score', 'CEDIS_complaint'])
     else:
         raise Exception("Not implemented yet.")
-
-    # split into train-validation-test data
-    train_data, valid_data, test_data = create_train_val_test_splits( df_treat, testStartDate )
-
-    # remove entries in train and validation data with wrong EPR dates
-    train_data = train_data.loc[ ( train_data['maxEPRdate'].dt.year >= 2005 ) & ( train_data['maxEPRdate'].dt.year <= 2022 ) ]
-    valid_data = valid_data.loc[ ( valid_data['maxEPRdate'].dt.year >= 2005 ) & ( valid_data['maxEPRdate'].dt.year <= 2022 ) ]
+    
+    # remove entries in the data with wrong EPR dates
+    df_treat = df_treat.loc[ ( df_treat['maxEPRdate'].dt.year >= 2005 ) & ( df_treat['maxEPRdate'].dt.year <= 2022 ) ]
 
     # remove records with potential leakage -- EPR date is after the treatment date
-    train_data = train_data.loc[ pd.to_datetime( train_data['treatment_date'], utc=True ) > pd.to_datetime( train_data['maxEPRdate'], utc=True ) ]
-    valid_data = valid_data.loc[ pd.to_datetime( valid_data['treatment_date'], utc=True ) > pd.to_datetime( valid_data['maxEPRdate'], utc=True ) ]
+    df_treat = df_treat.loc[ pd.to_datetime( df_treat['treatment_date'], utc=True ) > pd.to_datetime( df_treat['maxEPRdate'], utc=True ) ]
 
-    # delete notes in train, validation data split after certain date
-    train_data = train_data.loc[ train_data['treatment_date'] < testStartDate ]
-    valid_data = valid_data.loc[ valid_data['treatment_date'] < testStartDate ]
+    # exclude immediate events
+    df_treat = exclude_immediate_events(df_treat, date_cols=['target_ED_visit_date'])
 
-    # save train, validation, test data
-    train_data[['mrn','treatment_date','note','target_ED_visit']].to_csv( f"{saveDir}/train_noteAnchored_{eventName}_{configName}.csv" )
-    valid_data[['mrn','treatment_date','note','target_ED_visit']].to_csv( f"{saveDir}/valid_noteAnchored_{eventName}_{configName}.csv" )
-    test_data[['mrn','treatment_date','note','target_ED_visit']].to_csv( f"{saveDir}/test_noteAnchored_{eventName}_{configName}.csv" )
+    # save dataframe with anchored note
+    df_treat[['mrn','treatment_date','note',f'target_{eventName}']].to_csv( f"{saveDir}/noteAnchored_{eventName}_{configName}.csv" )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -112,12 +102,11 @@ if __name__ == "__main__":
     parser.add_argument("targetDataPath", help = "file path of target data", type = str) # target data file path
     parser.add_argument("saveDir", help = "save directory", type = str) # save directory
     parser.add_argument("configName", help = "configuration name", type = str) # configuration name
-    parser.add_argument("testStartDate", help = "start date for test period", type = str) # test start date
     parser.add_argument("testEndDate", help = "end date for test period", type = str) # test end date
     parser.add_argument("eventName", help = "name of event", type = str) # event name
     parser.add_argument("lookbackWindow", help = "lookback window for notes to be anchored", type = int) # lookback window
     args = parser.parse_args()
 
     anchorNoteTreatmentDate( args.dataPath, args.treatmentDataPath, args.targetDataPath,\
-                             args.saveDir, args.configName, args.testStartDate, args.testEndDate,\
+                             args.saveDir, args.configName, args.testEndDate,\
                              args.eventName, args.lookbackWindow )
