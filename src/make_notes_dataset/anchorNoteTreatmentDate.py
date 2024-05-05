@@ -47,7 +47,7 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, targetDataDir, saveDir,
     # load treatment-centered data frame
     df_treat = pd.read_parquet(f'{treatmentDataPath}', engine='pyarrow', use_nullable_dtypes = True)
 
-    if configName == 'mostRecentVisit_medOnc_ConsultLetterClinic':
+    if configName == 'mostRecentVisit-medOnc-ConsultLetterClinic':
         # only consider notes written by a medical oncologist 
         # only consider consultation, letter, clinic notes
         medOncs = list(set(aliasDictionary.values()))
