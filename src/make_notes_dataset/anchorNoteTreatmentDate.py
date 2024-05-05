@@ -119,15 +119,15 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, targetDataDir, saveDir,
     df_treat['death_date2'] = df_treat['mrn'].map(death_map2)
 
     df_treat['death_date'] = df_treat[['death_date1', 'death_date2']].min(axis=1)
-    df_treat['death_in_365d'] =  df_treat['death_date'] < df_treat['treatment_date'] + pd.Timedelta(days=365)
-    df_treat['death_in_30d'] = df_treat['death_date'] < df_treat['treatment_date'] + pd.Timedelta(days=30)
+    df_treat['target_death_in_365d'] =  df_treat['death_date'] < df_treat['treatment_date'] + pd.Timedelta(days=365)
+    df_treat['target_death_in_30d'] = df_treat['death_date'] < df_treat['treatment_date'] + pd.Timedelta(days=30)
 
     last_seen_date = pd.read_parquet(f'{targetDataDir}/last_seen_dates.parquet.gzip')
     df_treat['last_seen_date'] = df_treat['mrn'].map(last_seen_date['last_seen_date'])
     mask = df_treat['last_seen_date'] > df_treat['death_date']
 
-    df_treat[['death_in_365d', 'death_in_30d']] = df_treat[['death_in_365d', 'death_in_30d']].astype(int)
-    df_treat.loc[mask, ['death_in_365d', 'death_in_30d']] = -1
+    df_treat[['target_death_in_365d', 'target_death_in_30d']] = df_treat[['target_death_in_365d', 'target_death_in_30d']].astype(int)
+    df_treat.loc[mask, ['target_death_in_365d', 'target_death_in_30d']] = -1
         
     # remove entries in the data with wrong EPR dates
     df_treat = df_treat.loc[ ( df_treat['maxEPRdate'].dt.year >= 2005 ) & ( df_treat['maxEPRdate'].dt.year <= 2022 ) ]
@@ -135,13 +135,17 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, targetDataDir, saveDir,
     # remove records with potential leakage -- EPR date is after the treatment date
     df_treat = df_treat.loc[ pd.to_datetime( df_treat['treatment_date'], utc=True ) > pd.to_datetime( df_treat['maxEPRdate'], utc=True ) ]
 
-    keep_cols = list( df_treat.columns[df_treat.columns.str.contains('target_')] )
-    df_treat.loc[ df_treat[keep_cols].isnull(), keep_cols ] = -1
-    df_treat[ keep_cols ] = df_treat[ keep_cols ].astype(int)
+    cols = df_treat.columns
+    # drop columns
+    keep_cols = cols[cols.str.contains('target') & ~cols.str.contains('date')].tolist()
+    exclude_cols = [f'target_{col}' for col in symp_cols] + [f'target_{col}_change' for col in symp_cols] + ['target_CTAS_score', 'target_CEDIS_complaint']
+    target_cols = [col for col in keep_cols if col not in exclude_cols]
+    df_treat.loc[:, target_cols].fillna(value=-1, inplace=True)
+    df_treat[ target_cols ] = df_treat[ target_cols ].astype(int)
     df_treat = drop_samples_with_no_targets(df_treat, keep_cols, missing_val=-1) 
 
     # save dataframe with anchored note
-    df_treat[['mrn','treatment_date','note'] + keep_cols].to_csv( f"{saveDir}/noteAnchored_{configName}.csv" )
+    df_treat[['mrn','treatment_date','note'] + target_cols].to_csv( f"{saveDir}/noteAnchored_{configName}.csv" )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
