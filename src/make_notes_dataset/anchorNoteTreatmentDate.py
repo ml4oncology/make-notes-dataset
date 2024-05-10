@@ -47,27 +47,44 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, targetDataDir, saveDir,
     # load treatment-centered data frame
     df_treat = pd.read_parquet(f'{treatmentDataPath}', engine='pyarrow', use_nullable_dtypes = True)
 
-    if configName == 'mostRecentVisit-medOnc-ConsultLetterClinic':
+    if configName in ['mostRecentVisit-medOnc-ConsultLetterClinic', 'mostRecentVisit-appendFirst-medOnc-ConsultLetterClinic', 'firstVisitOnly-medOnc-ConsultLetterClinic'] :
         # only consider notes written by a medical oncologist 
         # only consider consultation, letter, clinic notes
         medOncs = list(set(aliasDictionary.values()))
         procName = ['Clinic Note', 'Letter', 'History & Physical Note', 'Consultation Note']
         mergedNotes = mergedNotes.loc[ (mergedNotes['processed_physician_name'].isin( medOncs )) &\
                                        (mergedNotes['Observations.ProcName'].isin( procName )) ].copy()
+        
+        # merge records of patient on the same day
+        # take the maximum of the EPR dates
+
+        mergedNotes['note'] = mergedNotes['Observations.ProcName'] + ':\n' + mergedNotes['clinical_notes']
+        mergedNotes = mergedNotes.groupby(['MRN','processed_date']).agg(
+                        processed_note=('note', lambda x: '\n'.join(x)),
+                        maxEPRdate=('EPRDate', 'max')).reset_index()
+        mergedNotes.rename(columns={"MRN": "mrn", "processed_note": "note"}, inplace=True)
+        mergedNotes['processed_date'] = mergedNotes['processed_date'].dt.date
+        mergedNotes['processed_date'] = mergedNotes['processed_date'].astype('<M8[ns]')
+
+        if configName == 'mostRecentVisit-appendFirst-medOnc-ConsultLetterClinic':
+            # get the first note
+            mergedNotes.sort_values(by='processed_date', inplace=True)
+            firstNote = mergedNotes.groupby(['mrn'])['note'].first().reset_index(name='first_note')
+            # append the first note
+            mergedNotes = mergedNotes.merge(firstNote, on="mrn")
+            mergedNotes['appended_first_note'] = mergedNotes.apply( lambda x: x['note'] if x['note'] == x['first_note'] else x['first_note'] + '\n' + x['note'], axis = 1  )
+            # retain only columns of interest
+            mergedNotes = mergedNotes[['mrn','processed_date','maxEPRdate','appended_first_note']]
+            mergedNotes.rename(columns={"appended_first_note": "note"}, inplace=True)
+        
+        elif configName == 'firstVisitOnly-medOnc-ConsultLetterClinic':
+            # keep only the first note
+            mergedNotes.sort_values(by='processed_date', inplace=True)
+            mergedNotes = mergedNotes.groupby('mrn')[['maxEPRdate','processed_date','note']].first().reset_index()
+
     else:
         raise Exception("Not implemented yet.")
     
-    # merge records of patient on the same day
-    # take the maximum of the EPR dates
-
-    mergedNotes['note'] = mergedNotes['Observations.ProcName'] + ':\n' + mergedNotes['clinical_notes']
-    mergedNotes = mergedNotes.groupby(['MRN','processed_date']).agg(
-                    processed_note=('note', lambda x: '\n'.join(x)),
-                    maxEPRdate=('EPRDate', 'max')).reset_index()
-    mergedNotes.rename(columns={"MRN": "mrn", "processed_note": "note"}, inplace=True)
-    mergedNotes['processed_date'] = mergedNotes['processed_date'].dt.date
-    mergedNotes['processed_date'] = mergedNotes['processed_date'].astype('<M8[ns]')
-
     # filter the treatment-centered data frame
     df_treat = df_treat.loc[ df_treat['mrn'].isin( mergedNotes['mrn'].unique() ) ]
     # filter out records if treatment date is past 2017, the end date of the study period

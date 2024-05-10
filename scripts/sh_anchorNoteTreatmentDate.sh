@@ -10,10 +10,14 @@ dataPath="/cluster/projects/gliugroup/2BLAST/clinical_notes/HealthReportRecords/
 treatmentDataPath="/cluster/home/t127556uhn/gitrepo/2024/make-clinical-dataset/data/processed/treatment_centered_clinical_dataset.parquet.gzip"
 targetDataDir="/cluster/home/t127556uhn/gitrepo/2024/make-clinical-dataset/data/anchor_notes_tabular"
 saveDir="/cluster/home/t127556uhn/gitrepo/2024/make-notes-dataset/data"
-configName="mostRecentVisit-medOnc-ConsultLetterClinic"
+#configName="mostRecentVisit-medOnc-ConsultLetterClinic"
+configName="mostRecentVisit-appendFirst-medOnc-ConsultLetterClinic"
 #testStartDate="2015-01-01"
 testEndDate="2017-12-31"
 #eventName="ED_visit"
 lookbackWindow=30
 
+pySLURMargs.py $userName $memory $condaEnv $nGPU "../src/make_notes_dataset/anchorNoteTreatmentDate.py $dataPath $treatmentDataPath $targetDataDir $saveDir $configName $testEndDate $lookbackWindow" 
+
+configName="firstVisitOnly-medOnc-ConsultLetterClinic"
 pySLURMargs.py $userName $memory $condaEnv $nGPU "../src/make_notes_dataset/anchorNoteTreatmentDate.py $dataPath $treatmentDataPath $targetDataDir $saveDir $configName $testEndDate $lookbackWindow" 
