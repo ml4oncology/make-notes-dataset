@@ -2,14 +2,12 @@ from tqdm import tqdm
 import numpy as np
 import pandas as pd
 from functools import partial
-from sklearn.model_selection import GroupShuffleSplit
 import logging
 from collections.abc import Sequence
 from typing import Optional
 
-from multiprocess import split_and_parallelize
-
-from preduceConstants import lab_cols, lab_change_cols, symp_cols, symp_change_cols
+from common.src.util import split_and_parallelize
+from common.src.constants import LAB_COLS, LAB_CHANGE_COLS, SYMP_COLS, SYMP_CHANGE_COLS
 
 logger = logging.getLogger(__name__)
 
@@ -20,15 +18,17 @@ logger = logging.getLogger(__name__)
 ###############################################################################
 def get_change_since_prev_session(df: pd.DataFrame) -> pd.DataFrame:
     """Get change since last session"""
-    cols = symp_cols + lab_cols + ['patient_ecog']
-    change_cols = symp_change_cols + lab_change_cols + ['patient_ecog_change']
+    cols = LAB_COLS + SYMP_COLS + ["patient_ecog"]
+    change_cols = SYMP_CHANGE_COLS + LAB_CHANGE_COLS + ["patient_ecog_change"]
     result = []
-    for mrn, group in tqdm(df.groupby('mrn')):
+    for mrn, group in tqdm(
+        df.groupby("mrn"), desc="Getting change since last session..."
+    ):
         change = group[cols] - group[cols].shift()
         result.append(change.reset_index().to_numpy())
     result = np.concatenate(result)
 
-    result = pd.DataFrame(result, columns=['index']+change_cols).set_index('index')
+    result = pd.DataFrame(result, columns=["index"] + change_cols).set_index("index")
     result.index = result.index.astype(int)
     df = pd.concat([df, result], axis=1)
 
@@ -92,52 +92,6 @@ def event_worker(partition, event_name, lookahead_window: int = 30, extra_cols: 
             result.append([chemo_idx, event_date] + extra_info)
     return result
 
-def create_train_val_test_splits(
-    data: pd.DataFrame, 
-    split_date: str
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Create the training, validation, and testing set"""
-    # split data temporally based on patients first visit date
-    train_data, test_data = create_temporal_cohort(data, split_date)
-    # create validation set from train data (80-20 split)
-    train_data, valid_data = create_random_split(train_data, test_size=0.2)
-
-    # sanity check - make sure there are no overlap of patients in the splits
-    assert(not set.intersection(set(train_data['mrn']), set(valid_data['mrn']), set(test_data['mrn'])))
-    return train_data, valid_data, test_data
-
-def create_temporal_cohort(
-    df: pd.DataFrame, 
-    split_date: str
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Create the development and testing cohort by partitioning on split_date
-    """
-    first_date = df.groupby('mrn')['treatment_date'].min()
-    first_date = df['mrn'].map(first_date)
-    mask = first_date <= split_date
-    dev_cohort, test_cohort = df[mask].copy(), df[~mask].copy()
-    
-    disp = lambda x: f"NSessions={len(x)}. NPatients={x.mrn.nunique()}"
-    msg = f"Development Cohort: {disp(dev_cohort)}. Contains all patients whose first visit was on or before {split_date}"
-    logger.info(msg)
-    msg = f"Test Cohort: {disp(test_cohort)}. Contains all patients whose first visit was after {split_date}"
-    logger.info(msg)
-
-    return dev_cohort, test_cohort
-
-def create_random_split(
-    df: pd.DataFrame, 
-    test_size: float, 
-    random_state: int = 42
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split data radnomly based on patient ids"""
-    gss = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
-    patient_ids = df['mrn']
-    train_idxs, test_idxs = next(gss.split(df, groups=patient_ids))
-    train_data = df.iloc[train_idxs].copy()
-    test_data = df.iloc[test_idxs].copy()
-    return train_data, test_data
-
 def get_excluded_numbers(df, mask: pd.Series, context: str = '.') -> None:
     """Report the number of patients and sessions that were excluded"""
     N_sessions = sum(~mask)
@@ -157,17 +111,20 @@ def exclude_immediate_events(df: pd.DataFrame, date_cols: Sequence[str]) -> pd.D
 ###############################################################################
 # Symptom
 ###############################################################################
-def convert_to_binary_symptom_labels(df: pd.DataFrame, scoring_map: Optional[dict[str, int]] = None) -> pd.DataFrame:
+def convert_to_binary_symptom_labels(
+    df: pd.DataFrame, scoring_map: Optional[dict[str, int]] = None
+) -> pd.DataFrame:
     """Convert label to 1 (positive), 0 (negative), or -1 (missing/exclude)
 
     Label is positive if symptom deteriorates (score increases) by X points
     """
-    if scoring_map is None: scoring_map = {col: 3 for col in symp_cols}
+    if scoring_map is None:
+        scoring_map = {col: 3 for col in SYMP_COLS}
     for base_col, pt in scoring_map.items():
-        continuous_targ_col = f'target_{base_col}_change'
-        discrete_targ_col = f'target_{base_col}_{pt}pt_change'
+        continuous_targ_col = f"target_{base_col}_change"
+        discrete_targ_col = f"target_{base_col}_{pt}pt_change"
         missing_mask = df[continuous_targ_col].isnull()
-        df[discrete_targ_col ] = (df[continuous_targ_col] >= pt).astype(int)
+        df[discrete_targ_col] = (df[continuous_targ_col] >= pt).astype(int)
         df.loc[missing_mask, discrete_targ_col] = -1
 
         # If baseline score is alrady high, we exclude them
@@ -175,7 +132,9 @@ def convert_to_binary_symptom_labels(df: pd.DataFrame, scoring_map: Optional[dic
     return df
 
 
-def get_symptom_labels(chemo_df: pd.DataFrame, symp_df: pd.DataFrame, lookahead_window: int = 30) -> pd.DataFrame:
+def get_symptom_labels(
+    chemo_df: pd.DataFrame, symp_df: pd.DataFrame, lookahead_window: int = 30
+) -> pd.DataFrame:
     """Extract labels for symptom deterioration within the next X days after visit date
 
     Args:
@@ -186,14 +145,14 @@ def get_symptom_labels(chemo_df: pd.DataFrame, symp_df: pd.DataFrame, lookahead_
     worker = partial(symptom_worker, lookahead_window=lookahead_window)
     result = split_and_parallelize((chemo_df, symp_df), worker)
     cols = []
-    for symp in symp_cols:
-        cols += [f'target_{symp}_survey_date', f'target_{symp}']
-    result = pd.DataFrame(result, columns=['index']+cols).set_index('index')
+    for symp in SYMP_COLS:
+        cols += [f"target_{symp}_survey_date", f"target_{symp}"]
+    result = pd.DataFrame(result, columns=["index"] + cols).set_index("index")
     chemo_df = pd.concat([chemo_df, result], axis=1)
-    
+
     # compute target symptom score change
-    for symp in symp_cols: 
-        chemo_df[f'target_{symp}_change'] = chemo_df[f'target_{symp}'] - chemo_df[symp]
+    for symp in SYMP_COLS:
+        chemo_df[f"target_{symp}_change"] = chemo_df[f"target_{symp}"] - chemo_df[symp]
 
     return chemo_df
 
@@ -201,39 +160,70 @@ def get_symptom_labels(chemo_df: pd.DataFrame, symp_df: pd.DataFrame, lookahead_
 def symptom_worker(partition, lookahead_window: int = 30) -> list:
     chemo_df, symp_df = partition
     result = []
-    for mrn, chemo_group in tqdm(chemo_df.groupby('mrn'), desc='Getting symptom labels...'):
-        symp_group = symp_df.query('mrn == @mrn')
-        surv_dates = symp_group['survey_date']
+    for mrn, chemo_group in tqdm(
+        chemo_df.groupby("mrn"), desc="Getting symptom labels..."
+    ):
+        symp_group = symp_df.query("mrn == @mrn")
+        surv_dates = symp_group["survey_date"]
 
-        for chemo_idx, visit_date in chemo_group['treatment_date'].items():
+        for chemo_idx, visit_date in chemo_group["treatment_date"].items():
             # NOTE: the baseline ESAS score can include surveys taken on visit date.
             # To make sure the target ESAS score does not overlap with baseline ESAS score,
             # only take surveys AFTER the visit date
             mask = surv_dates.between(
-                visit_date + pd.Timedelta(days=1), # NOTE: you can also just do inclusive='right'
-                visit_date + pd.Timedelta(days=lookahead_window)
+                visit_date
+                + pd.Timedelta(days=1),  # NOTE: you can also just do inclusive='right'
+                visit_date + pd.Timedelta(days=lookahead_window),
             )
             if not mask.any():
                 continue
 
             data = []
-            for symp in symp_cols:
+            for symp in SYMP_COLS:
                 # take the max (worst) symptom scores within the target timeframe
                 scores = symp_group.loc[mask, symp]
                 idx = None if all(scores.isnull()) else scores.idxmax(skipna=True)
-                data += [None, None] if idx is None else [surv_dates[idx], symp_group.loc[idx, symp]]
-            result.append([chemo_idx]+data)
+                data += (
+                    [None, None]
+                    if idx is None
+                    else [surv_dates[idx], symp_group.loc[idx, symp]]
+                )
+            result.append([chemo_idx] + data)
     return result
 
-def drop_samples_with_no_targets(df: pd.DataFrame, targ_cols: Sequence[str], missing_val=None) -> pd.DataFrame:
-    if missing_val is None: 
-        mask = df[targ_cols].isnull()
-    else:
-        mask = df[targ_cols] == missing_val
-    mask = ~mask.all(axis=1)
-    get_excluded_numbers(df, mask, context=' with no targets')
-    df = df[mask]
+
+def fill_missing_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Fill missing data that can be filled heuristically"""
+    # fill the following missing data with 0
+    col = "num_prior_ED_visits_within_5_years"
+    df[col] = df[col].fillna(0)
+
+    # fill the following missing data with the maximum value
+    for col in ["days_since_last_treatment", "days_since_prev_ED_visit"]:
+        df[col] = df[col].fillna(df[col].max())
+
     return df
+
+
+def keep_only_one_per_week(df: pd.DataFrame) -> list[int]:
+    """Keep only the first treatment session of a given week
+    Drop all other sessions
+    """
+    keep_idxs = []
+    for mrn, group in tqdm(
+        df.groupby("mrn"), desc="Getting the first sessions of a given week..."
+    ):
+        previous_date = pd.Timestamp.min
+        for i, visit_date in group["treatment_date"].items():
+            if visit_date >= previous_date + pd.Timedelta(days=7):
+                keep_idxs.append(i)
+                previous_date = visit_date
+    get_excluded_numbers(
+        df, mask=df.index.isin(keep_idxs), context=f" not first of a given week"
+    )
+    df = df.loc[keep_idxs]
+    return df
+
 
 def indicate_immediate_events(
     df: pd.DataFrame, 
@@ -259,17 +249,3 @@ def indicate_immediate_events(
     logger.info(f'About {min(n_events)}-{max(n_events)} sessions had a target event '
                 f'(e.g. {targ_cols[0]}) in less than 2 days.')
     return df
-
-def get_death(df):
-    df.columns = df.columns.str.lower()
-    df['date_of_death'] = pd.to_datetime(df['date_of_death'], format='%d%b%Y:%H:%M:%S')
-    mask = df['date_of_death'].notnull()
-    df = df.loc[mask, ['medical_record_number', 'date_of_death']].drop_duplicates()
-    df['medical_record_number'] = df['medical_record_number'].astype(int)
-    # sort by date_of_death
-    df.sort_values(by = 'date_of_death', inplace=True)
-    df = df.reset_index(drop=True)
-    # take the earliest date recorded if multiple records are available
-    df = df.groupby('medical_record_number')['date_of_death'].first().reset_index(name='date_of_death')
-    assert not any(df['medical_record_number'].duplicated())
-    return df.to_numpy()

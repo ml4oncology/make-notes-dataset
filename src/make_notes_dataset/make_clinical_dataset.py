@@ -3,7 +3,7 @@ from functools import partial
 from tqdm import tqdm
 import pandas as pd
 
-from multiprocess import split_and_parallelize
+from common.src.util import split_and_parallelize
 
 # Code by Kevin He
 
