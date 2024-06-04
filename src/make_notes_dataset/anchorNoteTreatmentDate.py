@@ -121,7 +121,7 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, EDVisitDataDir,
     df_treat = get_event_labels(df_treat, df_target_ed, event_name='ED_visit', extra_cols=['CTAS_score', 'CEDIS_complaint'])
     
     # exclude immediate events
-    df_treat = exclude_immediate_events(df_treat, date_cols=['target_ED_visit_date'])
+    df_treat = indicate_immediate_events(df_treat, targ_cols='target_ED_visit', date_cols=['target_ED_visit_date'])
 
     # process symptom targets
     target_pt_increases = [1, 3]
@@ -206,39 +206,3 @@ if __name__ == "__main__":
                              args.symptomDataDir, args.lastSeenDataDir,
                              args.saveDir, args.configName, args.testEndDate,
                              args.lookbackWindow )
-
-
-
-# # filter out dates before 2014 and after 2020
-# df = drop_samples_outside_study_date(df)
-# # symptom
-# df = drop_samples_outside_study_date(df)
-# get the change in measurement since previous assessment
-# df = get_change_since_prev_session(df)
-# get the change in measurement since previous assessment
-# df = get_change_since_prev_session(df)
-# extract labels
-# df = get_event_labels(df, emerg, event_name='ED_visit', extra_cols=['CTAS_score', 'CEDIS_complaint'])
-# extract labels
-# symp = pd.read_parquet('./data/external/symptom.parquet.gzip')
-# df = get_symptom_labels(df, symp)
-# for pt_increase in target_pt_increases:
-#     scoring_map = {symp: pt_increase for symp in SYMP_COLS}
-#     df = convert_to_binary_symptom_labels(df, scoring_map=scoring_map)
-# keep only the first treatment session of a given week
-# df = keep_only_one_per_week(df)
-# ED visit
-# filter out sessions without any labels
-# target_cols = 'target_' + pd.Index(SYMP_CHANGE_COLS)
-# df = drop_samples_with_no_targets(df, target_cols)
-# drop drug features that were never used
-# df = drop_unused_drug_features(df)
-# fill missing data that can be filled heuristically
-# df = fill_missing_data(df)
-# drop features with high missingness
-# keep_cols = df.columns[df.columns.str.contains('target_')]
-# df = drop_highly_missing_features(df, missing_thresh=75, keep_cols=keep_cols)
-# create missingness features
-# df = get_missingness_features(df)
-# collapse rare morphology and cancer sites into 'Other' category
-# df = collapse_rare_categories(df, catcols=['cancer_site', 'morphology'])
