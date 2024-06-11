@@ -364,3 +364,44 @@ def getLastUpdated(jsonDir, filePartNum, procNames):
     dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'Observations.Observation._id': obsIDList, 'lastUpdated': lastUpdatedList} )
 
     return dfLastUpdated
+
+def getLastUpdatedMissingCINotes(jsonDir, filePartNum, procNames):
+    """
+        Extract the lastUpdated column from the raw json file since it's not present
+        in the processed CSV files. This is only for the missing .CI notes.
+
+        jsonDir: directory where the raw json files are saved
+        filePartNum: file part number to be processed
+        procNames: list of procedure names of interest
+    """
+    # load the json file
+    fileName = f"2Blast_part4_{filePartNum}_clinic_notes.zip"
+    filePath = jsonDir + '/' + fileName
+
+    jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_clinic_notes.json'
+    if not os.path.isfile( jsonFileName ):
+        os.system(f"unzip {filePath} -d {jsonDir}")
+    
+    with open( jsonFileName ) as json_file:
+        data = json.load(json_file)
+
+    # tabulate patient id, obs id, last updated
+
+    patientList = []
+    clinicIDList = []
+    lastUpdatedList = []
+
+    for idx in range(len(data)):
+        nObs = len(data[idx]['ClinicNotes'])
+        for jdx in range(nObs):
+            if str(data[idx]['ClinicNotes'][jdx]['ClinicNote']['code']['text']) in procNames:
+                patientList.append( data[idx]['PATIENT_RESEARCH_ID'] )
+                clinicIDList.append( data[idx]['ClinicNotes'][jdx]['ClinicNote']['_id'] )
+                lastUpdatedList.append( data[idx]['ClinicNotes'][jdx]['ClinicNote']['meta']['lastUpdated'] )
+
+    # delete json file
+    os.system(f"rm {jsonDir}/2Blast_part4_{filePartNum}_clinic_notes.json")
+
+    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'ClinicNotes.ClinicNote._id': clinicIDList, 'lastUpdated': lastUpdatedList} )
+
+    return dfLastUpdated
