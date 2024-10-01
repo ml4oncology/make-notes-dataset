@@ -81,8 +81,7 @@ Then take a look into the `scripts` and `notebooks` folders.
 ├── setup.cfg               <- Declarative configuration of your project.
 ├── setup.py                <- [DEPRECATED] Use `python setup.py develop` to install for
 │                              development or `python setup.py bdist_wheel` to build.
-└── src
-    └── make_notes_dataset  <- Actual Python package where the main functionality goes.
+└── src                     <- Actual Python package where the main functionality goes.
 ```
 
 ## Notebook description

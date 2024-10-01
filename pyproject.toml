@@ -11,10 +11,12 @@ version_scheme = "no-guess-dev"
 [project]
 name = "make-notes-dataset"
 description = "Generate notes dataset of patients treated at Princess Margaret hospital"
+readme = 'README.md'
+license = {file = "LICENSE"}
 version = "0.1.0"
 authors = [
-    { name = "Wayne Uy", email = "wayneisaacuy@gmail.com" }
-    { name = "Kevin He", email = "Kevin.He@uhn.ca" },
+    { name = "Wayne Uy", email = "wayneisaacuy@gmail.com" },
+    { name = "Kevin He", email = "Kevin.He@uhn.ca" }
 ]
 dependencies = [
     "ml_common @ git+https://github.com/ml4oncology/ml-common.git"
