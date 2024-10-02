@@ -1,22 +1,25 @@
-import numpy as np
 import pandas as pd
 import argparse
-from pathlib import Path
 import sys
-ROOT_DIR = Path(__file__).parent.parent.parent.as_posix()
-sys.path.append(ROOT_DIR)
-from common.src.anchor import combine_feat_to_main_data
-from common.src.engineer import (get_change_since_prev_session,
-                                 get_missingness_features,
-                                 collapse_rare_categories)
-from common.src.filter import (drop_samples_with_no_targets, 
-                               drop_unused_drug_features, 
-                               drop_highly_missing_features)
-from common.src.constants import SYMP_COLS
-from preduce import (get_event_labels, exclude_immediate_events, 
-                     get_symptom_labels, convert_to_binary_symptom_labels, 
-                     indicate_immediate_events, fill_missing_data,
-                     keep_only_one_per_week)
+from ml_common.anchor import combine_feat_to_main_data
+from ml_common.engineer import (
+    get_change_since_prev_session,
+    get_missingness_features,
+    collapse_rare_categories
+)
+from ml_common.filter import (
+    drop_samples_with_no_targets, 
+    drop_unused_drug_features, 
+    drop_highly_missing_features,
+    keep_only_one_per_week
+)
+from ml_common.constants import SYMP_COLS
+# TODO: fix this import
+from preduce import (
+    get_event_labels, exclude_immediate_events, 
+    get_symptom_labels, convert_to_binary_symptom_labels, 
+    indicate_immediate_events, fill_missing_data,
+)
 
 sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/clinical_notes/HealthReportRecords/constants")
 # load constants from file
