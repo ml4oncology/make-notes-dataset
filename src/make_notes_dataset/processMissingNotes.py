@@ -161,7 +161,8 @@ def processMissingNotes(dataDir, jsonDir, saveDir, MRNfile, filePartNum):
     dfLastUpdated = getLastUpdatedMissingCINotes(jsonDir, filePartNum, procNames)
     pivotDataDF = pivotDataDF.merge( dfLastUpdated, how='left', on=['PATIENT_RESEARCH_ID', 'ClinicNotes.ClinicNote._id'] )
 
-    pivotDataDF = pivotDataDF.loc[ pivotDataDF['clinical_notes'] != '\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n' ].copy()
+    # drop empty notes
+    pivotDataDF = pivotDataDF.loc[ pivotDataDF['clinical_notes'].apply(lambda x: x.replace('\n','').strip()) != '' ].copy()
 
     # save extracted data
     pivotDataDF.to_csv( f"{saveDir}/processedMissingClinicalNotes_{filePartNum}.csv" )

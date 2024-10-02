@@ -8,5 +8,7 @@ nGPU=0
 
 dataDir="/cluster/projects/gliugroup/2BLAST/clinical_notes/HealthReportRecords/results_status_dates/processed/dataframes"
 saveDir="/cluster/projects/gliugroup/2BLAST/clinical_notes/HealthReportRecords/results_status_dates/processed/dataframes"
+includeMissing=0
+missingNotesDir="/cluster/projects/gliugroup/2BLAST/clinical_notes/HealthReportRecords/missing_notes_csv/processed/dataframes"
 
-pySLURMargs.py $userName $memory $condaEnv $nGPU "../src/make_notes_dataset/cleanNotes.py $dataDir $saveDir" 
+pySLURMargs.py $userName $memory $condaEnv $nGPU "../src/make_notes_dataset/cleanNotes.py $dataDir $saveDir --includeMissing $includeMissing --missingDataDir $missingNotesDir" 

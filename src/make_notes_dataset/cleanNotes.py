@@ -5,9 +5,9 @@ import argparse
 from pathlib import Path
 import json
 import math
-from util import extractDateFromNote, extractJobNum
+from util import extractDateFromNote, extractJobNum, stripTitle
 
-def cleanNotes(dataDir, saveDir):
+def cleanNotes(dataDir, saveDir, includeMissing=0, missingNotesDir=None):
     """
     Clean processed clinical notes by replacing the date with date in 
     note if available and dropping duplicates according to extracted
@@ -17,7 +17,23 @@ def cleanNotes(dataDir, saveDir):
     saveDir: directory path where the clean merged processed csv file will be saved
     """
 
+    print(includeMissing)
+    
     mergedNotes = pd.read_parquet(f'{dataDir}/merged_processed_clinicalNotes.parquet.gzip', engine='pyarrow', use_nullable_dtypes = True)
+    colsToKeep = ['MRN', 'Observations.ProcName', 'clinical_notes', 'visitDate', 'processed_physician_name', 'lastUpdated', 'dictated_by']
+    mergedNotes = mergedNotes[colsToKeep].copy()
+
+    if includeMissing == 1:
+        # load file
+        missingNotes = pd.read_parquet(f'{missingNotesDir}/merged_processed_missingClinicalNotes.parquet.gzip', engine='pyarrow', use_nullable_dtypes = True)
+        colsToKeep = ['MRN', 'ClinicNotes.ClinicNote.code.text', 'clinical_notes', 'visitDate', 'processed_physician_name', 'lastUpdated', 'dictated_by']
+        missingNotes = missingNotes[colsToKeep].copy()
+        missingNotes.rename(columns={"ClinicNotes.ClinicNote.code.text":"Observations.ProcName"}, inplace=True)
+        mergedNotes = pd.concat([mergedNotes, missingNotes], ignore_index=True)
+
+    # add physician name
+    maskNotNull = mergedNotes['dictated_by'].notnull()
+    mergedNotes.loc[maskNotNull, 'dictated_by'] = mergedNotes.loc[maskNotNull, 'dictated_by'].apply(lambda x: stripTitle(x))
 
     # extract date from note
     mergedNotes['dateInNote'] = mergedNotes['clinical_notes'].apply( lambda x: extractDateFromNote( x ) )
@@ -54,13 +70,19 @@ def cleanNotes(dataDir, saveDir):
     # filtered notes
     mergedNotesDropDuplicates = pd.concat([mergedNotes.loc[ ~mergedNotes['job_id'].isin(jobIdWDuplicates) ], filteredRecords]).reset_index()
 
-    colsToKeep = ['MRN', 'Observations.ProcName', 'processed_physician_name', 'processed_date', 'clinical_notes', 'EPRDate']
-    mergedNotesDropDuplicates[colsToKeep].to_parquet(f'{saveDir}/merged_processed_cleaned_clinicalNotes.parquet.gzip', compression='gzip', index=False)
+    colsToKeep = ['MRN', 'Observations.ProcName', 'processed_physician_name', 'processed_date', 'clinical_notes', 'EPRDate', 'dictated_by']
+    if includeMissing == 0:
+        fileName = 'merged_processed_cleaned_clinicalNotes'
+    else:
+        fileName = 'merged_processed_cleaned_clinicalNotes_addedMissing'
+    mergedNotesDropDuplicates[colsToKeep].to_parquet(f'{saveDir}/{fileName}.parquet.gzip', compression='gzip', index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("dataDir", help = "data directory", type = str) # data directory
     parser.add_argument("saveDir", help = "save directory", type = str) # save directory
+    parser.add_argument("--includeMissing", help = "include missing notes and merge", type = int) # include missing notes
+    parser.add_argument("--missingDataDir", help = "directory of missing data", type = str) # directory of missing data
     args = parser.parse_args()
 
-    cleanNotes( args.dataDir, args.saveDir )
+    cleanNotes( args.dataDir, args.saveDir, args.includeMissing, args.missingDataDir )

@@ -243,6 +243,7 @@ def indicate_immediate_events(
         days_until_event = df[date_col] - df['treatment_date']
         immediate_mask = days_until_event < pd.Timedelta('2 days')
         occured_mask = df[targ_col] == 1
+        print
         mask = immediate_mask & occured_mask
         df.loc[mask, targ_col] = replace_val
         n_events.append(sum(mask))
