@@ -2,7 +2,10 @@ import numpy as np
 import pandas as pd
 import os
 import argparse
+import logging
 from .util import process_date, process_physician, get_last_updated
+
+logger = logging.getLogger(__name__)
 
 def process_clinical_notes(data_dir, json_dir, save_dir, mrn_file, file_part_num):
     """Process each dataset pulled by the CDI team. 
@@ -139,11 +142,11 @@ def process_clinical_notes(data_dir, json_dir, save_dir, mrn_file, file_part_num
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("data-dir", help="data directory", type=str)  # data directory
-    parser.add_argument("json-dir", help = "json directory", type = str) # json directory
-    parser.add_argument("save-dir", help = "save directory", type = str) # save directory
-    parser.add_argument("mrn-file", help = "MRN file", type = str) # file where MRN is saved
-    parser.add_argument("file-part-num", help = "file part number", type = int) # file part number
+    parser.add_argument("data_dir", help="data directory", type=str)  # data directory
+    parser.add_argument("json_dir", help = "json directory", type = str) # json directory
+    parser.add_argument("save_dir", help = "save directory", type = str) # save directory
+    parser.add_argument("mrn_file", help = "MRN file", type = str) # file where MRN is saved
+    parser.add_argument("file_part_num", help = "file part number", type = int) # file part number
     args = parser.parse_args()
 
     process_clinical_notes(args.data_dir, args.json_dir, args.save_dir, args.mrn_file, args.file_part_num)

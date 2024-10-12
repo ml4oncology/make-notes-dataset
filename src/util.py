@@ -11,7 +11,7 @@ sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/clinical_notes/HealthRepo
 # load constants from file
 from constants import ambigousPhysicians, aliasDictionary
 
-def processDate( df ):
+def process_date( df ):
     """
     Process date of visit column according to the following hierarchy:
     date_dictated > Observations.Observation.effectiveDateTime > Observations.OccurrenceDateTimeFromOrder
@@ -276,7 +276,7 @@ def stripTitle(x):
 
     return ' '.join( [w for w in x.split() if len(w)>1] )
 
-def processPhysician( df ):
+def process_physician( df ):
     """
     Process attending physician name column according to the following hierarchy:
     attending_staff > dictated_by > documented_by > dictated_by_for >  dictated_by_and_or_verified_by_resident_s_attending
@@ -321,7 +321,7 @@ def processPhysician( df ):
 
     return df
 
-def getLastUpdated(jsonDir, filePartNum, procNames):
+def get_last_updated(jsonDir, filePartNum, procNames):
     """
         Extract the lastUpdated column from the raw json file since it's not present
         in the processed CSV files.
