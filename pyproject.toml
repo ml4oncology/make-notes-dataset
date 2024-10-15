@@ -15,7 +15,7 @@ readme = 'README.md'
 license = {file = "LICENSE"}
 version = "0.1.0"
 authors = [
-    { name = "Wayne Uy", email = "wayneisaacuy@gmail.com" },
+    { name = "Wayne Uy", email = "wayneisaac.uy@uhn.ca" },
     { name = "Kevin He", email = "Kevin.He@uhn.ca" }
 ]
 dependencies = [
