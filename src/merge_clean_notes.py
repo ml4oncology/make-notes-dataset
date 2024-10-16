@@ -1,7 +1,5 @@
-import numpy as np
 import pandas as pd
 import argparse
-from pathlib import Path
 from util import extractDateFromNote, extractJobNum
 
 def merge_clean_notes(dataDir, saveDir, filePartMin, filePartMax):
