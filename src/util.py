@@ -14,28 +14,28 @@ from constants import ambigousPhysicians, aliasDictionary
 def process_date( df ):
     """
     Process date of visit column according to the following hierarchy:
-    date_dictated > Observations.Observation.effectiveDateTime > Observations.OccurrenceDateTimeFromOrder
+    date_dictated > effective_date_time > occurrence_date_time_from_order
 
-    df: a dataframe with columns date_dictated, Observations.Observation.effectiveDateTime, Observations.OccurrenceDateTimeFromOrder
+    df: a dataframe with columns date_dictated, effective_date_time, occurrence_date_time_from_order
     """
     
     # replace dummy dates with None and convert columns to datetime 
-    df['Observations.OccurrenceDateTimeFromOrder'].replace('dummy', None, inplace=True)
-    df['Observations.Observation.effectiveDateTime'].replace('dummy', None, inplace=True)
-    df['Observations.OccurrenceDateTimeFromOrder'] = pd.to_datetime( df['Observations.OccurrenceDateTimeFromOrder'], utc=True )
-    df['Observations.Observation.effectiveDateTime'] = pd.to_datetime( df['Observations.Observation.effectiveDateTime'], utc=True )
+    df['occurrence_date_time_from_order'].replace('dummy', None, inplace=True)
+    df['effective_date_time'].replace('dummy', None, inplace=True)
+    df['occurrence_date_time_from_order'] = pd.to_datetime(df['occurrence_date_time_from_order'], utc=True)
+    df['effective_date_time'] = pd.to_datetime(df['effective_date_time'], utc=True)
 
     # convert date_dictated from string to datetime column by extracting date only and excluding day of week
     maskDateDictated = df['date_dictated'].notnull()
-    df.loc[maskDateDictated, 'date_dictated'] = pd.to_datetime( df.loc[maskDateDictated, 'date_dictated'].map( lambda x: x.split(',')[1][1:] ) , format='%d %b %Y')
-    df['date_dictated'] = pd.to_datetime( df['date_dictated'], utc=True )
+    df.loc[maskDateDictated, 'date_dictated'] = pd.to_datetime(df.loc[maskDateDictated, 'date_dictated'].map( lambda x: x.split(',')[1][1:] ) , format='%d %b %Y')
+    df['date_dictated'] = pd.to_datetime(df['date_dictated'], utc=True)
 
     # create a visit date column according to hierarchy of "accuracy"
     df['visitDate'] = df['date_dictated'].dt.date
     visitDateNullMask = df['visitDate'].isnull()
-    df.loc[ visitDateNullMask, 'visitDate' ] = df.loc[ visitDateNullMask, 'Observations.Observation.effectiveDateTime' ].dt.date
+    df.loc[visitDateNullMask, 'visitDate'] = df.loc[visitDateNullMask, 'effective_date_time'].dt.date
     visitDateNullMask = df['visitDate'].isnull()
-    df.loc[ visitDateNullMask, 'visitDate' ] = df.loc[ visitDateNullMask, 'Observations.OccurrenceDateTimeFromOrder' ].dt.date
+    df.loc[visitDateNullMask, 'visitDate'] = df.loc[visitDateNullMask, 'occurrence_date_time_from_order'].dt.date
 
     return df
 
@@ -361,11 +361,11 @@ def get_last_updated(jsonDir, filePartNum, procNames):
     # delete json file
     os.system(f"rm {jsonDir}/2Blast_part4_{filePartNum}_results_with_status_dates.json")
 
-    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'Observations.Observation._id': obsIDList, 'lastUpdated': lastUpdatedList} )
+    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'observation_id': obsIDList, 'lastUpdated': lastUpdatedList} )
 
     return dfLastUpdated
 
-def getLastUpdatedMissingCINotes(jsonDir, filePartNum, procNames):
+def get_last_updated_missing_ci_notes(jsonDir, filePartNum, procNames):
     """
         Extract the lastUpdated column from the raw json file since it's not present
         in the processed CSV files. This is only for the missing .CI notes.
@@ -402,6 +402,6 @@ def getLastUpdatedMissingCINotes(jsonDir, filePartNum, procNames):
     # delete json file
     os.system(f"rm {jsonDir}/2Blast_part4_{filePartNum}_clinic_notes.json")
 
-    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'ClinicNotes.ClinicNote._id': clinicIDList, 'lastUpdated': lastUpdatedList} )
+    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'clinical_note_id': clinicIDList, 'lastUpdated': lastUpdatedList} )
 
     return dfLastUpdated
