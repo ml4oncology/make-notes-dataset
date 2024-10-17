@@ -31,11 +31,11 @@ def process_date( df ):
     df['date_dictated'] = pd.to_datetime(df['date_dictated'], utc=True)
 
     # create a visit date column according to hierarchy of "accuracy"
-    df['visitDate'] = df['date_dictated'].dt.date
-    visitDateNullMask = df['visitDate'].isnull()
-    df.loc[visitDateNullMask, 'visitDate'] = df.loc[visitDateNullMask, 'effective_date_time'].dt.date
-    visitDateNullMask = df['visitDate'].isnull()
-    df.loc[visitDateNullMask, 'visitDate'] = df.loc[visitDateNullMask, 'occurrence_date_time_from_order'].dt.date
+    df['visit_date'] = df['date_dictated'].dt.date
+    visitDateNullMask = df['visit_date'].isnull()
+    df.loc[visitDateNullMask, 'visit_date'] = df.loc[visitDateNullMask, 'effective_date_time'].dt.date
+    visitDateNullMask = df['visit_date'].isnull()
+    df.loc[visitDateNullMask, 'visit_date'] = df.loc[visitDateNullMask, 'occurrence_date_time_from_order'].dt.date
 
     return df
 

@@ -9,6 +9,59 @@ from .util import (process_date, process_physician,
 
 logger = logging.getLogger(__name__)
 
+def split_metadata_col_missing(note_text):
+    """ Split value into meta data and notes data for the missing notes case.
+    """
+    if '\n' in note_text:
+        meta_data = 'clinical_note'
+        text_data = note_text
+    elif '/' in note_text:
+        slash_position = note_text.index('/')
+        colon_position = note_text.index(':')
+        meta_data = note_text[slash_position + 1:colon_position]
+        text_data = note_text[colon_position + 2:]
+
+        if meta_data[0] == '/' or (len(meta_data) > 1 and meta_data[1] == '/'):
+            slash_position = meta_data.index('/')
+            meta_data = meta_data[slash_position + 1:]
+    else:
+        meta_data = 'undefined'
+        text_data = note_text
+
+    return meta_data, text_data
+
+def create_metadata(df):
+    """ Create metadata column for dataframe in the non missing notes case."""
+
+    # Columns to keep in the processed data frame
+    columns_to_keep = [
+        "MRN",
+        "PATIENT_RESEARCH_ID",
+        "Observations.ProcCode",
+        "Observations.ProcName",
+        "observation_id",
+        "Observations.StatusFromOrder",
+        "occurrence_date_time_from_order",
+        "Observations.Observation.basedOn.0.reference",
+        "Observations.Observation.encounter.reference",
+        "Observations.Observation.status",
+        "effective_date_time",
+        "meta_data",
+        "text_data",
+    ]
+
+    # create metadata column called 'meta_data' by merging 2 columns in the raw data frame
+    df['meta_data'] = df['component_code_text'].copy()
+    df.loc[df['component_code_display'].notnull(), 'meta_data'] =\
+          df['component_code_display'].loc[df['component_code_display'].notnull()]
+    df['meta_data'] = df['meta_data'].str.lower()
+    # clinical notes is split into 2 columns in the raw data frame
+    notes_mask = (df['component_extension_url'] == 'NOTES')
+    df.loc[notes_mask, 'text_data'] = df['component_extension_value_string'].loc[notes_mask]
+
+    # only keep columns in the processed data frame
+    return df[columns_to_keep].copy()
+
 def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_part_num):
     """ Process each dataset pulled by the CDI team. 
         
@@ -44,8 +97,12 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
             'ClinicNotes.ClinicNote.note.text': 'note_text',  
             'ClinicNotes.ClinicNote.date': 'note_date',
             'ClinicNotes.ClinicNote.effectiveDateTime': 'effective_date_time',
-            'ClinicNotes.ClinicNote._id': 'clinical_note_id'
+            'ClinicNotes.ClinicNote._id': 'clinical_note_id',
+            'ClinicNotes.ClinicNote.code.text': 'code_text',
+            'ClinicNotes.ClinicNote.encounter.reference': 'encounter_reference'
         }
+        proc_name_col = 'code_text'
+        visit_id_col = 'clinical_note_id'
     else:
         new_column_names = {
             'Observations.Observation._id': 'observation_id',
@@ -54,87 +111,181 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
             'Observations.Observation.component.code.text': 'component_code_text',
             'Observations.Observation.component.code.coding.0.display': 'component_code_display',
             'Observations.Observation.component.extension.2.url': 'component_extension_url',
-            'Observations.Observation.component.valueString': 'component_value_string',
+            'Observations.Observation.component.valueString': 'text_data',
             'Observations.Observation.component.extension.2.valueString': 'component_extension_value_string',
         }
-          # pivot data frame to desired format
-        # clinical notes is split into 2 columns in raw dataframe
-    # df['component_descriptor'] = df['Observations.Observation.component.code.text'].copy()
-    # df.loc[df['Observations.Observation.component.code.coding.0.display'].notnull(), 'component_descriptor'] = \
-    #     df['Observations.Observation.component.code.coding.0.display'].loc[df['Observations.Observation.component.code.coding.0.display'].notnull()]
-    # df['component_descriptor'] = df['component_descriptor'].str.lower()
-    # notes_mask = (df['Observations.Observation.component.extension.2.url'] == 'NOTES')
-    # df.loc[notes_mask, 'Observations.Observation.component.valueString'] = df['Observations.Observation.component.extension.2.valueString'].loc[notes_mask]
+        proc_name_col = 'Observations.ProcName'
+        visit_id_col = 'observation_id'
 
-        #   df_meta_of_interest['Observations.ProcCode'] = df_meta_of_interest['Observations.ProcCode'].astype(int)
-    # df_meta_of_interest['Observations.Observation.component.valueString'] = df_meta_of_interest['Observations.Observation.component.valueString'].astype(str)
-    # df_meta_of_interest['component_descriptor'] = df_meta_of_interest['component_descriptor'].astype(str)
-    # pivot_data_df = df_meta_of_interest.pivot_table('Observations.Observation.component.valueString', cols_to_group_by, 'component_descriptor', aggfunc=lambda x: ' '.join(x))
-    # pivot_data_df.reset_index(drop=False, inplace=True)
-    # pivot_data_df = pivot_data_df.rename_axis(None, axis=1)
+    df = df.rename(columns=new_column_names)
 
-
-
-    # if missing:
-    # make these adjustments
-    # df = df.loc[df['ClinicNotes.ClinicNote.note.text'].apply(lambda x: len(x.strip())) > 1].copy()
-    # # add EPR date
-    # df['epr_date'] = df['ClinicNotes.ClinicNote.date'].fillna(df['ClinicNotes.ClinicNote.effectiveDateTime'])
+    # if missing, make adjustments to the dataframe
+    if missing_notes:
+        df = df.loc[df['note_text'].apply(lambda x: len(x.strip())) > 1].copy()
+        # add EPR date
+        df['epr_date'] = df['note_date'].fillna(df['effective_date_time'])
 
     # add mrn column
+    mrns = pd.read_csv(mrn_file, dtype={'RESEARCH_ID': 'string', 'MRN': 'string'})
+    mrn_map = dict(zip(mrns['RESEARCH_ID'], mrns['MRN']))
+    df['mrn'] = df['PATIENT_RESEARCH_ID'].map(mrn_map)
 
     # extract only procedures of interest (if condition if missing)
+    PROCEDURE_NAMES_OF_INTEREST = [
+        'Letter',
+        'Consultation Note',
+        'Communication Note',
+        'Radiation Therapy Note',
+        'OR Procedure/Notes',
+        'Clinic Note',
+        'Telephone Advice',
+        'History & Physical Note',
+        'Clinic Note (Non-dictated)',
+        'Discharge Summary',
+        'Unscheduled Discharge Summary',
+        'Operative Note',
+        'Progress Notes',
+        'Letters',
+        'Consultation Report',
+    ]
+    mask = df[proc_name_col].isin(PROCEDURE_NAMES_OF_INTEREST)
+    df = df[mask].copy()    
 
-    # work on meta-data (if missing, special if condition)
+    # create metadata column
+    if missing_notes:
+        df['meta_data'], df['text_data'] = zip(*df['note_text'].apply(lambda x: split_metadata_col_missing(x)))
+        df = df.reset_index()
+    else:
+        df = create_metadata(df)
 
-    # filter cols to keep if not missing
+    # filter out the (meta data) we care about
+    notes_metadata = [
+        'medical records report',
+        'note',
+        'additional details',
+        'textualreport',
+        'document more advice',
+        'reason for communication',
+        'information given',
+        'reason for call',
+        'spoke with',
+        'phone number',
+        'comment',
+        'communication with',
+        'person calling',
+        'e-mail address',
+        'clinical_note',
+    ]
 
-    # filter out the component_descriptor (metadata) we care about
+    other_metadata = [
+        'date dictated',
+        'dictated by',
+        'documented by',
+        'attending/staff',
+        'report type',
+        'specialty',
+        'transcribed by',
+        'family physician',
+        'department',
+        'location',
+        'attending/staff signing off note',
+        'dictating md verifying note',
+        'dictated by/for',
+        "dictated by and/or verified by/resident's attending",
+    ]
 
-    # if missing, do this:
+    # remove special characters in metadata name to facilitate transition to column names
+    map_notes_meta = {elem: elem.replace(' ', '_').replace('-', '_').replace('/', '_') for elem in notes_metadata}
+    map_other_meta = {elem: elem.replace(' ', '_').replace('-', '_').replace('/', '_').replace("'", '_') for elem in other_metadata}
+
+    # make adjustments if missing notes case
+    if missing_notes:
         # drop rows which have duplicate values for text_data if meta_data is in other_meta
+        df_all_other_meta = df.loc[~df['meta_data'].isin(other_metadata)].copy()
+        df_physician_meta = df.loc[df['meta_data'].isin(other_metadata)].copy()
+        df_physician_meta.drop_duplicates(subset=['PATIENT_RESEARCH_ID', 'clinical_note_id', 'meta_data', 'text_data'], inplace=True)
+        df = pd.concat([df_all_other_meta, df_physician_meta], axis=0)
 
-        # df_all_other_meta = df.loc[~df['meta_data'].isin(other_meta)].copy()
+        # merge text values if the meta_data is the same
+        group_by_cols = ['mrn', 'PATIENT_RESEARCH_ID', 'clinical_note_id', 'code_text', 'epr_date', 'encounter_reference', 'meta_data']
+        df_grouped = df.groupby(group_by_cols).agg(text_data=('text_data', lambda x: '\n'.join(x))).reset_index()
+        df_grouped['meta_data'] = df_grouped['meta_data'].str.lower()
+        df = df_grouped.copy()
 
-        # df_physician_meta = df.loc[df['meta_data'].isin(other_meta)].copy()
+    # retain only metadata of interest
+    df_meta_of_interest = df.loc[df['meta_data'].isin(notes_metadata + other_metadata)].copy()
+    if 'Observations.ProcCode' in df_meta_of_interest.columns:
+        df_meta_of_interest['Observations.ProcCode'] = df_meta_of_interest['Observations.ProcCode'].astype(int)
 
-        # df_physician_meta.drop_duplicates(subset=['PATIENT_RESEARCH_ID', 'ClinicNotes.ClinicNote._id', 'meta_data', 'text_data'], inplace=True)
+    # map metadata names to facilitate transition to column names upon pivoting
+    map_meta = {**map_notes_meta, **map_other_meta}
+    df_meta_of_interest['meta_data'] = df_meta_of_interest['meta_data'].map(map_meta)
+    cols_to_group_by = [col for col in df_meta_of_interest.columns if col not in ['meta_data', 'text_data']]
 
-        # df = pd.concat([df_all_other_meta, df_physician_meta], axis=0)
+    # fill the null values with "dummy" to pivot the dataframe
+    df_meta_of_interest[cols_to_group_by] = df_meta_of_interest[cols_to_group_by].fillna(value="dummy")
 
+    # pivot data frame to desired format
+    df_meta_of_interest['meta_data'] = df_meta_of_interest['meta_data'].astype(str)
+    df_meta_of_interest['text_data'] = df_meta_of_interest['text_data'].astype(str)
+    pivot_data_df = df_meta_of_interest.pivot_table('text_data', cols_to_group_by, 'meta_data', aggfunc=lambda x: ' '.join(x))
+    pivot_data_df.reset_index(drop=False, inplace=True)
+    pivot_data_df = pivot_data_df.rename_axis(None, axis=1)
 
+    # count the number of patients
+    n_patient_obs = df_meta_of_interest[['PATIENT_RESEARCH_ID', visit_id_col]].copy().drop_duplicates().shape[0]
+    assert np.allclose(pivot_data_df.shape[0], n_patient_obs), "Number of observations does not match number of patients"
 
-        # # merge text values if the meta_data is the same
+    # if missing, # fix Medical Records Report metadata
+    if missing_notes:
+        mask = (pivot_data_df['medical_records_report'] == 'Medical Records Report') & pivot_data_df['clinical_note'].notna()
+        pivot_data_df.loc[mask, 'medical_records_report'] = pivot_data_df.loc[mask, 'clinical_note']
+        mask = pivot_data_df['medical_records_report'].isna() & pivot_data_df['clinical_note'].notna()
+        pivot_data_df.loc[mask, 'medical_records_report'] = pivot_data_df.loc[mask, 'clinical_note']
 
-        # group_by_cols = ['mrn', 'PATIENT_RESEARCH_ID', 'ClinicNotes.ClinicNote._id', 'ClinicNotes.ClinicNote.code.text', 'epr_date', 'ClinicNotes.ClinicNote.encounter.reference', 'meta_data']
+    # merge all notes into a clinical_notes column
+    cols_to_agg_master = ['medical_records_report', 'textual_report', 'note', 'additional_details',
+                          'document_more_advice', 'reason_for_communication', 'information_given',
+                          'reason_for_call', 'comment', 'person_calling', 'email_address',
+                          'communication_with', 'spoke_with', 'phone_number', 'fax_number',
+                          'relation_to_patient']
+    cols_to_agg_local = [x for x in cols_to_agg_master if x in pivot_data_df.columns]
+    pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].astype(str)
+    pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].replace(to_replace='nan', value="")
+    pivot_data_df['clinical_notes'] = pivot_data_df[cols_to_agg_local].agg('\n\n'.join, axis=1)
+    pivot_data_df.drop(columns=cols_to_agg_local, inplace=True)
+    if 'clinical_note' in pivot_data_df.columns: 
+        pivot_data_df.drop(columns='clinical_note', inplace=True)
 
-        # df_grouped = df.groupby(group_by_cols).agg(text_data=('text_data', lambda x: '\n'.join(x))).reset_index()
+    # apply correction to the date 
+    if missing_notes:
+        pivot_data_df['date_dictated'] = pd.to_datetime(pivot_data_df['date_dictated'], utc=True, format='mixed')
+        pivot_data_df['epr_date'] = pd.to_datetime(pivot_data_df['epr_date'], utc=True)
+        pivot_data_df['visit_date'] = pivot_data_df['date_dictated'].dt.date
+        visit_date_null_mask = pivot_data_df['visit_date'].isna() & pivot_data_df['epr_date'].notna()
+        pivot_data_df.loc[visit_date_null_mask, 'visit_date'] = pivot_data_df.loc[visit_date_null_mask, 'epr_date'].dt.date
+    else:
+        pivot_data_df = process_date(pivot_data_df)
+    
+    # apply correction to the physician name
+    pivot_data_df = process_physician(pivot_data_df)
 
-        # df_grouped['meta_data'] = df_grouped['meta_data'].str.lower()
+    # extract and merge last_updated column
+    if missing_notes:
+        df_last_updated = get_last_updated_missing_ci_notes(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
+    else:
+        df_last_updated = get_last_updated(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
+    pivot_data_df = pivot_data_df.merge(df_last_updated, how='left', on=['PATIENT_RESEARCH_ID', visit_id_col])
 
+    pivot_data_df = pivot_data_df.loc[pivot_data_df['clinical_notes'] != '\n'*len(cols_to_agg_master)].copy()
 
+    # save extracted data
+    if missing_notes:
+        pivot_data_df.to_parquet(f"{save_dir}/processed_missing_clinical_notes_{file_part_num}.csv", compression='gzip', index=False)
+    else:
+        pivot_data_df.to_parquet(f"{save_dir}/processed_clinical_notes_{file_part_num}.csv", compression='gzip', index=False)
 
-     # remove special characters in metadata name to facilitate transition to column names
-
-     # retain only metadata of interest
-
-     # map metadata names to facilitate transition to column names upon pivoting
-
-     # fill the null values with "dummy" to pivot the dataframe
-
-      # pivot data frame to desired format
-
-      # if missing, # fix Medical Records Report metadata
-
-      # # merge all notes into a clinical_notes column
-
-      # apply correction to the date (if condition for missing, not missing)
-
-      # apply correction to the physician name (missing, not missing)
-
-      # if missing: pivot_data_df = pivot_data_df.loc[pivot_data_df['clinical_notes'] != '\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'].copy()
-
-      # save extracted dataif __name__ == "__main__":
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("data_dir", help="data directory", type=str)  # data directory
     parser.add_argument("json_dir", help = "json directory", type = str) # json directory
