@@ -7,7 +7,7 @@ import json
 import math
 import re
 import sys
-sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/clinical_notes/HealthReportRecords/constants")
+sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/HealthReportRecords/constants")
 # load constants from file
 from constants import ambigousPhysicians, aliasDictionary
 
@@ -18,7 +18,7 @@ def process_date( df ):
 
     df: a dataframe with columns date_dictated, effective_date_time, occurrence_date_time_from_order
     """
-    
+
     # replace dummy dates with None and convert columns to datetime 
     df['occurrence_date_time_from_order'].replace('dummy', None, inplace=True)
     df['effective_date_time'].replace('dummy', None, inplace=True)
@@ -331,12 +331,7 @@ def get_last_updated(jsonDir, filePartNum, procNames):
         procNames: list of procedure names of interest
     """
     # load the json file
-    fileName = f"2Blast_part4_{filePartNum}_results_with_status_dates.zip"
-    filePath = jsonDir + '/' + fileName
-
     jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_results_with_status_dates.json'
-    if not os.path.isfile( jsonFileName ):
-        os.system(f"unzip {filePath} -d {jsonDir}")
     
     with open( jsonFileName ) as json_file:
         data = json.load(json_file)
@@ -358,9 +353,6 @@ def get_last_updated(jsonDir, filePartNum, procNames):
                 obsIDList.append( data[idx]['Observations'][jdx]['Observation']['_id'] )
                 lastUpdatedList.append( data[idx]['Observations'][jdx]['Observation']['meta']['lastUpdated'] )
 
-    # delete json file
-    os.system(f"rm {jsonDir}/2Blast_part4_{filePartNum}_results_with_status_dates.json")
-
     dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'observation_id': obsIDList, 'lastUpdated': lastUpdatedList} )
 
     return dfLastUpdated
@@ -375,12 +367,7 @@ def get_last_updated_missing_ci_notes(jsonDir, filePartNum, procNames):
         procNames: list of procedure names of interest
     """
     # load the json file
-    fileName = f"2Blast_part4_{filePartNum}_clinic_notes.zip"
-    filePath = jsonDir + '/' + fileName
-
     jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_clinic_notes.json'
-    if not os.path.isfile( jsonFileName ):
-        os.system(f"unzip {filePath} -d {jsonDir}")
     
     with open( jsonFileName ) as json_file:
         data = json.load(json_file)
@@ -398,9 +385,6 @@ def get_last_updated_missing_ci_notes(jsonDir, filePartNum, procNames):
                 patientList.append( data[idx]['PATIENT_RESEARCH_ID'] )
                 clinicIDList.append( data[idx]['ClinicNotes'][jdx]['ClinicNote']['_id'] )
                 lastUpdatedList.append( data[idx]['ClinicNotes'][jdx]['ClinicNote']['meta']['lastUpdated'] )
-
-    # delete json file
-    os.system(f"rm {jsonDir}/2Blast_part4_{filePartNum}_clinic_notes.json")
 
     dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'clinical_note_id': clinicIDList, 'lastUpdated': lastUpdatedList} )
 

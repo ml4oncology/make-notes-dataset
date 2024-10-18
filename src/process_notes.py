@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import argparse
 import logging
-from .util import (process_date, process_physician, 
+from util import (process_date, process_physician, 
                    get_last_updated,
                    get_last_updated_missing_ci_notes)
 
@@ -35,7 +35,7 @@ def create_metadata(df):
 
     # Columns to keep in the processed data frame
     columns_to_keep = [
-        "MRN",
+        "mrn",
         "PATIENT_RESEARCH_ID",
         "Observations.ProcCode",
         "Observations.ProcName",
@@ -81,9 +81,9 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
 
     # generate file name of gzip file
     if missing_notes:
-        file_name = f"2Blast_part4_{file_part_num}_clinic_notes.csv"
+        file_name = f"2Blast_part4_{file_part_num}_clinic_notes.parquet.gzip"
     else:
-        file_name = f"2Blast_part4_{file_part_num}_results_with_status_dates-output.zip"
+        file_name = f"2Blast_part4_{file_part_num}_results_with_status_dates.parquet.gzip"
 
     # print file name
     logger.info(file_name)
@@ -200,7 +200,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
 
     # make adjustments if missing notes case
     if missing_notes:
-        # drop rows which have duplicate values for text_data if meta_data is in other_meta
+        # drop rows which have duplicate values for text_data if meta data is in other_meta
         df_all_other_meta = df.loc[~df['meta_data'].isin(other_metadata)].copy()
         df_physician_meta = df.loc[df['meta_data'].isin(other_metadata)].copy()
         df_physician_meta.drop_duplicates(subset=['PATIENT_RESEARCH_ID', 'clinical_note_id', 'meta_data', 'text_data'], inplace=True)
@@ -236,7 +236,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
     n_patient_obs = df_meta_of_interest[['PATIENT_RESEARCH_ID', visit_id_col]].copy().drop_duplicates().shape[0]
     assert np.allclose(pivot_data_df.shape[0], n_patient_obs), "Number of observations does not match number of patients"
 
-    # if missing, # fix Medical Records Report metadata
+    # if missing, fix Medical Records Report meta data
     if missing_notes:
         mask = (pivot_data_df['medical_records_report'] == 'Medical Records Report') & pivot_data_df['clinical_note'].notna()
         pivot_data_df.loc[mask, 'medical_records_report'] = pivot_data_df.loc[mask, 'clinical_note']
@@ -244,10 +244,10 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
         pivot_data_df.loc[mask, 'medical_records_report'] = pivot_data_df.loc[mask, 'clinical_note']
 
     # merge all notes into a clinical_notes column
-    cols_to_agg_master = ['medical_records_report', 'textual_report', 'note', 'additional_details',
-                          'document_more_advice', 'reason_for_communication', 'information_given',
-                          'reason_for_call', 'comment', 'person_calling', 'email_address',
-                          'communication_with', 'spoke_with', 'phone_number', 'fax_number',
+    cols_to_agg_master = ['medical_records_report', 'textualreport', 'note', 'additional_details', 
+                          'document_more_advice', 'reason_for_communication', 'information_given', 
+                          'reason_for_call', 'comment', 'person_calling', 'e_mail_address', 
+                          'communication_with', 'spoke_with', 'phone_number', 'fax_number', 
                           'relation_to_patient']
     cols_to_agg_local = [x for x in cols_to_agg_master if x in pivot_data_df.columns]
     pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].astype(str)
@@ -281,9 +281,9 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
 
     # save extracted data
     if missing_notes:
-        pivot_data_df.to_parquet(f"{save_dir}/processed_missing_clinical_notes_{file_part_num}.csv", compression='gzip', index=False)
+        pivot_data_df.to_parquet(f"{save_dir}/processed_missing_clinical_notes_{file_part_num}.parquet.gzip", compression='gzip', index=False)
     else:
-        pivot_data_df.to_parquet(f"{save_dir}/processed_clinical_notes_{file_part_num}.csv", compression='gzip', index=False)
+        pivot_data_df.to_parquet(f"{save_dir}/processed_clinical_notes_{file_part_num}.parquet.gzip", compression='gzip', index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
