@@ -1,12 +1,9 @@
-import numpy as np
 import pandas as pd
-import os
-import argparse
 from pathlib import Path
 import json
-import math
 import re
 import sys
+import multiprocessing as mp
 sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/HealthReportRecords/constants")
 # load constants from file
 from constants import ambigousPhysicians, aliasDictionary
@@ -39,7 +36,7 @@ def process_date( df ):
 
     return df
 
-def extractDateFromNote( x ):
+def extract_date_from_note( x ):
     """
     Extract the date from note. This is heuristic and based on trial and error.
     It is not perfect and all-encompassing.
@@ -70,10 +67,10 @@ def extractDateFromNote( x ):
         return None
     else:
         nonzero_descriptor_id = [idx for idx, val in enumerate(inText) if val != 0]
-        return helperDateFromNote(x, date_description_list[ nonzero_descriptor_id[0] ])
+        return helper_date_from_note(x, date_description_list[ nonzero_descriptor_id[0] ])
 
     
-def helperDateFromNote( x, date_descrip ):
+def helper_date_from_note( x, date_descrip ):
     """
     Helper function for extracting date from note in cases where a substring of the form
     "date of *" is present.
@@ -151,7 +148,7 @@ def helperDateFromNote( x, date_descrip ):
     else:
         return None    
 
-def extractJobNum( x ):
+def extract_job_num( x ):
     """
     Extract job number from the note if possible. This is heuristic 
     and based on trial and error. It is not perfect and all-encompassing.
@@ -188,16 +185,16 @@ def extractJobNum( x ):
     
     elif 'dictated but not read' in x:
         
-        jobID = helperExtractJobID_DictatedNotRead(x, 1)
+        jobID = helper_extract_jobid_dictated_not_read(x, 1)
 
         if jobID == None:
             return jobID
         elif any(chr.isalpha() for chr in jobID):
-            jobID = helperExtractJobID_DictatedNotRead(x, 0)
+            jobID = helper_extract_jobid_dictated_not_read(x, 0)
         
         return jobID
 
-def helperExtractJobID_DictatedNotRead(x, first):
+def helper_extract_jobid_dictated_not_read(x, first):
     """
     Helper function to extract job number from note if 'dictated but
     not read' string is present.
@@ -246,7 +243,7 @@ def helperExtractJobID_DictatedNotRead(x, first):
     else:
         return jobID
 
-def stripTitle(x):
+def strip_title(x):
     """
     Strip title and single letters from name.
 
@@ -308,7 +305,7 @@ def process_physician( df ):
     # strip titles for non-null names
     maskNotNull = df['physician_name'].notnull()
     df['processed_physician_name'] = None
-    df.loc[ maskNotNull, 'processed_physician_name' ] = df.loc[ maskNotNull, 'physician_name' ].apply( lambda x: stripTitle(x) ) 
+    df.loc[ maskNotNull, 'processed_physician_name' ] = df.loc[ maskNotNull, 'physician_name' ].apply( lambda x: strip_title(x) ) 
 
     # map names of medical oncologists to alias
     def map_medOnc(x, medOncMap):
@@ -353,7 +350,7 @@ def get_last_updated(jsonDir, filePartNum, procNames):
                 obsIDList.append( data[idx]['Observations'][jdx]['Observation']['_id'] )
                 lastUpdatedList.append( data[idx]['Observations'][jdx]['Observation']['meta']['lastUpdated'] )
 
-    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'observation_id': obsIDList, 'lastUpdated': lastUpdatedList} )
+    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'observation_id': obsIDList, 'last_updated': lastUpdatedList} )
 
     return dfLastUpdated
 
@@ -386,6 +383,17 @@ def get_last_updated_missing_ci_notes(jsonDir, filePartNum, procNames):
                 clinicIDList.append( data[idx]['ClinicNotes'][jdx]['ClinicNote']['_id'] )
                 lastUpdatedList.append( data[idx]['ClinicNotes'][jdx]['ClinicNote']['meta']['lastUpdated'] )
 
-    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'clinical_note_id': clinicIDList, 'lastUpdated': lastUpdatedList} )
+    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'clinical_note_id': clinicIDList, 'last_updated': lastUpdatedList} )
 
     return dfLastUpdated
+
+###############################################################################
+# Multiprocessing
+###############################################################################
+
+def parallelize(generator, worker, processes: int = 4) -> list:
+    pool = mp.Pool(processes=processes)
+    result = pool.map(worker, generator)
+    pool.close()
+    pool.join()
+    return result
