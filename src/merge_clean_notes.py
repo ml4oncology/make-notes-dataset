@@ -136,7 +136,7 @@ def merge_clean_notes(data_dir_observations, data_dir_clinical,
     # filtered notes
     merged_notes_drop_duplicates = pd.concat([notes_df.loc[~notes_df['job_id'].isin(job_id_w_duplicates)], filtered_records]).reset_index()
 
-    cols_to_keep = ['mrn', 'Observations.ProcName', 'processed_physician_name', 'processed_date', 'clinical_notes', 'epr_date']
+    cols_to_keep = ['mrn', 'Observations.ProcName', 'processed_physician_name', 'processed_date', 'clinical_notes', 'epr_date', 'dictated_by']
     merged_notes_drop_duplicates[cols_to_keep].to_parquet(f'{save_dir}/merged_processed_cleaned_clinical_notes.parquet.gzip', compression='gzip', index=False)
 
 
