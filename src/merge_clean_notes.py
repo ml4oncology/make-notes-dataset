@@ -33,21 +33,31 @@ def merge_clean_notes(data_dir_observations, data_dir_clinical,
 
     # apply parallel processing to process each dataframe for clinic (missing) 
 
-    worker = partial(process_notes, data_dir=data_dir_clinical, 
-                     json_dir=json_dir_clinical, 
-                     save_dir=save_dir,
-                     mrn_file=mrn_file, 
-                     missing_notes=1)
+    # worker = partial(process_notes, data_dir=data_dir_clinical, 
+    #                  json_dir=json_dir_clinical, 
+    #                  save_dir=save_dir,
+    #                  mrn_file=mrn_file, 
+    #                  missing_notes=1)
+    worker = partial(process_notes, data_dir_clinical, 
+                     json_dir_clinical, 
+                     save_dir,
+                     mrn_file, 
+                     1)
     generator = list(range(file_part_max_clinical + 1))
     out = parallelize(generator, worker, processes=os.cpu_count())
 
     # apply parallel processing to process each dataframe for observation (non-missing)
 
-    worker = partial(process_notes, data_dir=data_dir_observations, 
-                     json_dir=json_dir_observations, 
-                     save_dir=save_dir,
-                     mrn_file=mrn_file, 
-                     missing_notes=0)
+    # worker = partial(process_notes, data_dir=data_dir_observations, 
+    #                  json_dir=json_dir_observations, 
+    #                  save_dir=save_dir,
+    #                  mrn_file=mrn_file, 
+    #                  missing_notes=0)
+    worker = partial(process_notes, data_dir_observations, 
+                     json_dir_observations, 
+                     save_dir,
+                     mrn_file, 
+                     0)
     generator = list(range(file_part_max_observations + 1))
     out = parallelize(generator, worker, processes=os.cpu_count())
 
