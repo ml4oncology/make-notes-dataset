@@ -21,15 +21,16 @@ def merge_clean_notes(data_dir_observations, data_dir_clinical,
     replacing the date with date in note if available and dropping 
     duplicates according to extracted job number and date last updated.
 
-    data_dir_observations: directory path of the parquet.gzip files for observations
-    data_dir_clinical: directory path of the parquet.gzip files for clinical
-    json_dir_observations: directory path of the json files for observations
-    json_dir_clinical: directory path of the json files for clinical
-    mrn_file: mrn file
     save_dir: directory path where merged parquet file will be saved
     file_part_max_observations: maximum number of files for the observations notes
     file_part_max_clinical: maximum number of files for the clinical notes
     """
+
+    # data_dir_observations: directory path of the parquet.gzip files for observations
+    # data_dir_clinical: directory path of the parquet.gzip files for clinical
+    # json_dir_observations: directory path of the json files for observations
+    # json_dir_clinical: directory path of the json files for clinical
+    # mrn_file: mrn file
 
     # apply parallel processing to process each dataframe for clinic (missing) 
 
@@ -38,13 +39,13 @@ def merge_clean_notes(data_dir_observations, data_dir_clinical,
     #                  save_dir=save_dir,
     #                  mrn_file=mrn_file, 
     #                  missing_notes=1)
-    worker = partial(process_notes, data_dir_clinical, 
-                     json_dir_clinical, 
-                     save_dir,
-                     mrn_file, 
-                     1)
-    generator = list(range(file_part_max_clinical + 1))
-    out = parallelize(generator, worker, processes=os.cpu_count())
+    # worker = partial(process_notes, data_dir_clinical, 
+    #                  json_dir_clinical, 
+    #                  save_dir,
+    #                  mrn_file, 
+    #                  1)
+    # generator = list(range(file_part_max_clinical + 1))
+    # out = parallelize(generator, worker, processes=os.cpu_count())
 
     # apply parallel processing to process each dataframe for observation (non-missing)
 
@@ -53,13 +54,13 @@ def merge_clean_notes(data_dir_observations, data_dir_clinical,
     #                  save_dir=save_dir,
     #                  mrn_file=mrn_file, 
     #                  missing_notes=0)
-    worker = partial(process_notes, data_dir_observations, 
-                     json_dir_observations, 
-                     save_dir,
-                     mrn_file, 
-                     0)
-    generator = list(range(file_part_max_observations + 1))
-    out = parallelize(generator, worker, processes=os.cpu_count())
+    # worker = partial(process_notes, data_dir_observations, 
+    #                  json_dir_observations, 
+    #                  save_dir,
+    #                  mrn_file, 
+    #                  0)
+    # generator = list(range(file_part_max_observations + 1))
+    # out = parallelize(generator, worker, processes=os.cpu_count())
 
     # merge dataframes
     merged_notes = dict()
