@@ -60,7 +60,10 @@ def extract_date_from_note( x ):
     # Case 2
     date_description_list = ['date of visit:', 'date of procedure:', 'date of surgery:', 'date of op:',\
                              'date of operation:', 'date of or:', 'date of service:',\
-                             'date of the procedure:', 'date of assessment:']
+                             'date of the procedure:', 'date of assessment:', 'follow-up date:',\
+                             'visit date:', 'date dictated:', 'contact date:', 'date:',\
+                             'date of clinic visit:']
+    
     xLower = x.lower()
     inText = [ 1 if elem in xLower else 0 for elem in date_description_list ]
     if sum( inText ) == 0:

@@ -31,7 +31,7 @@ def drop_samples_outside_study_date(data_dir, save_dir, start_date, end_date):
     filtered_notes = filtered_notes.loc[filtered_notes['processed_date'] <= end_date]
 
     # print how many records were dropped
-    print("Number of records dropped: ", merged_notes.shape[0] - filtered_notes.shape[0])
+    logger.info(f"Number of records dropped: {merged_notes.shape[0] - filtered_notes.shape[0]}")
 
     # assert that the dates are between the start and end dates
     assert sum(filtered_notes['processed_date'].between(start_date, end_date)) == filtered_notes.shape[0], "Some visit dates are outside the study period."
