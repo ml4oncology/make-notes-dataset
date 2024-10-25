@@ -277,7 +277,9 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
         df_last_updated = get_last_updated(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
     pivot_data_df = pivot_data_df.merge(df_last_updated, how='left', on=['PATIENT_RESEARCH_ID', visit_id_col])
 
-    pivot_data_df = pivot_data_df.loc[pivot_data_df['clinical_notes'] != '\n'*len(cols_to_agg_master)].copy()
+    pivot_data_df['new_line_only'] = pivot_data_df['clinical_notes'].apply(lambda x: all(char == '\n' for char in x))
+    pivot_data_df = pivot_data_df.loc[pivot_data_df['new_line_only'] == False]
+    pivot_data_df.drop('new_line_only', axis=1, inplace=True)
 
     # save extracted data
     if missing_notes:

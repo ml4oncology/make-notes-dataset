@@ -196,6 +196,18 @@ def extract_job_num( x ):
             jobID = helper_extract_jobid_dictated_not_read(x, 0)
         
         return jobID
+    
+    # elif 'visit number' in x:
+    #     idx = x.find('visit number:')
+    #     x_visit = x[idx:]
+
+    #     # find the first \n
+    #     idx_nl = x_visit.find('\n')
+    #     visit_number = str(x_visit[:idx_nl])
+    #     jobID = re.sub(r'\s+', ' ', visit_number)
+    #     jobID = jobID.replace(' ', '')
+
+    #     return jobID
 
 def helper_extract_jobid_dictated_not_read(x, first):
     """

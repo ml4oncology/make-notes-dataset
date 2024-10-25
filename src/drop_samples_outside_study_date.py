@@ -15,7 +15,7 @@ def drop_samples_outside_study_date(data_dir, save_dir, start_date, end_date):
     end_date: end date (yyyy-mm-dd) of study 
     """
 
-    merged_notes = pd.read_parquet(f'{data_dir}/merged_processed_cleaned_clinicalNotes.parquet.gzip', engine='pyarrow', use_nullable_dtypes=True)
+    merged_notes = pd.read_parquet(f'{data_dir}/merged_processed_cleaned_clinical_notes.parquet.gzip', engine='pyarrow', use_nullable_dtypes=True)
 
     # sort by processed_date and group by MRN
     merged_notes.sort_values(by='processed_date', inplace=True)
