@@ -252,6 +252,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
     cols_to_agg_local = [x for x in cols_to_agg_master if x in pivot_data_df.columns]
     pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].astype(str)
     pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].replace(to_replace='nan', value="")
+    pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].replace(to_replace='None', value="")
     pivot_data_df['clinical_notes'] = pivot_data_df[cols_to_agg_local].agg('\n\n'.join, axis=1)
     pivot_data_df.drop(columns=cols_to_agg_local, inplace=True)
     if 'clinical_note' in pivot_data_df.columns: 
@@ -277,6 +278,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
         df_last_updated = get_last_updated(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
     pivot_data_df = pivot_data_df.merge(df_last_updated, how='left', on=['PATIENT_RESEARCH_ID', visit_id_col])
 
+    # pivot_data_df = pivot_data_df.loc[pivot_data_df['clinical_notes'] != '\n'*len(cols_to_agg_master)].copy()
     pivot_data_df['new_line_only'] = pivot_data_df['clinical_notes'].apply(lambda x: all(char == '\n' for char in x))
     pivot_data_df = pivot_data_df.loc[pivot_data_df['new_line_only'] == False]
     pivot_data_df.drop('new_line_only', axis=1, inplace=True)

@@ -70,6 +70,8 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
     notes_df.loc[mask_null_dates, 'processed_date'] = notes_df.loc[mask_null_dates, 'visit_date']
     notes_df.rename(columns={"visit_date": "epr_date"}, inplace=True)
 
+    notes_df['last_updated'] = pd.to_datetime(notes_df['last_updated'], utc=True)
+    
     # check that there is no-nan entry in the processed date
     assert sum(notes_df['processed_date'].isnull()) == 0 , "There is a nan date in the processed dates."
 
