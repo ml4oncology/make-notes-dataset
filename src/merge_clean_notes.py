@@ -56,9 +56,9 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
     merged_notes['clinical'].rename(columns={'code_text':"Observations.ProcName"}, inplace=True)
     notes_df = pd.concat([merged_notes['observations'], merged_notes['clinical']], ignore_index=True)
 
-    # add physician name
-    mask_not_null = notes_df['dictated_by'].notnull()
-    notes_df.loc[mask_not_null, 'dictated_by'] = notes_df.loc[mask_not_null, 'dictated_by'].apply(lambda x: strip_title(x))
+    # # add physician name
+    # mask_not_null = notes_df['dictated_by'].notnull()
+    # notes_df.loc[mask_not_null, 'dictated_by'] = notes_df.loc[mask_not_null, 'dictated_by'].apply(lambda x: strip_title(x))
   
     # extract date from note
     notes_df['date_in_note'] = notes_df['clinical_notes'].apply(lambda x: extract_date_from_note(x))

@@ -90,6 +90,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
 
     # read parquet.gzip file
     df = pd.read_parquet(os.path.join(data_dir, file_name), engine='pyarrow', use_nullable_dtypes = True)
+    df.replace({'None': None}, inplace=True)
 
     # rename certain columns
     if missing_notes:
@@ -126,7 +127,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
         df['epr_date'] = df['note_date'].fillna(df['effective_date_time'])
 
     # add mrn column
-    mrns = pd.read_csv(mrn_file, dtype={'RESEARCH_ID': 'string', 'MRN': 'string'})
+    mrns = pd.read_csv(mrn_file, dtype={'RESEARCH_ID': 'string', 'MRN': 'int64'})
     mrn_map = dict(zip(mrns['RESEARCH_ID'], mrns['MRN']))
     df['mrn'] = df['PATIENT_RESEARCH_ID'].map(mrn_map)
 

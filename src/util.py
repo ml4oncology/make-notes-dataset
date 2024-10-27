@@ -197,17 +197,18 @@ def extract_job_num( x ):
         
         return jobID
     
-    # elif 'visit number' in x:
-    #     idx = x.find('visit number:')
-    #     x_visit = x[idx:]
+    elif 'visit number' in x:
+        
+        idx = x.find('visit number:')
+        x_visit = x[idx:]
 
-    #     # find the first \n
-    #     idx_nl = x_visit.find('\n')
-    #     visit_number = str(x_visit[:idx_nl])
-    #     jobID = re.sub(r'\s+', ' ', visit_number)
-    #     jobID = jobID.replace(' ', '')
+        # find the first \n
+        idx_nl = x_visit.find('\n')
+        visit_number = str(x_visit[:idx_nl])
+        jobID = re.sub(r'\s+', ' ', visit_number)
+        jobID = jobID.replace(' ', '')
 
-    #     return jobID
+        return jobID
 
 def helper_extract_jobid_dictated_not_read(x, first):
     """
@@ -296,6 +297,15 @@ def process_physician( df ):
     df: a dataframe with columns attending_staff, dictated_by, documented_by
     """
 
+    # replace None string entries with none
+    physician_cols = ['attending_staff', 'dictated_by', 'documented_by']
+    if 'dictated_by_for' in df.columns:
+        physician_cols = physician_cols + ['dictated_by_for']
+    if 'dictated_by_and_or_verified_by_resident_s_attending' in df.columns:
+        physician_cols = physician_cols + ['dictated_by_and_or_verified_by_resident_s_attending']
+
+    df[physician_cols] = df[physician_cols].replace('None', None)
+
     # check for ambiguous physician names in attending_staff and replace by value in dictated_by
     maskAmbiguous = df['attending_staff'].isin( ambigousPhysicians ) 
     df.loc[ maskAmbiguous, 'attending_staff'] = df.loc[ maskAmbiguous, 'dictated_by' ] 
@@ -330,6 +340,10 @@ def process_physician( df ):
             return medOncMap[x]
     
     df.loc[ maskNotNull, 'processed_physician_name' ] = df.loc[ maskNotNull, 'processed_physician_name' ].apply( lambda x: map_medOnc(x, aliasDictionary) )
+
+    # also strip titles from dictated by
+    maskNotNull = df['dictated_by'].notnull()
+    df.loc[ maskNotNull, 'dictated_by' ] = df.loc[ maskNotNull, 'dictated_by' ].apply( lambda x: strip_title(x) )
 
     return df
 
