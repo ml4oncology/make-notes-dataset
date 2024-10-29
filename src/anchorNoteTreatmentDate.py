@@ -90,7 +90,7 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, EDVisitDataDir,
         elif configName == 'firstVisitOnly-medOnc-ConsultLetterClinic':
             # keep only the first note
             mergedNotes.sort_values(by='processed_date', inplace=True)
-            mergedNotes = mergedNotes.groupby('mrn')[['maxEPRdate','processed_date','note','stats_physician','stats_noteType']].first().reset_index()
+            mergedNotes = mergedNotes.groupby('mrn')[['maxEPRdate','processed_date','note','stats_physician','stats_dictatedBy','stats_noteType']].first().reset_index()
 
     else:
         raise Exception("Not implemented yet.")
