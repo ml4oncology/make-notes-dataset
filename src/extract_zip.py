@@ -39,22 +39,14 @@ def extract_zip(zip_directory, save_directory):
                     parquet_file_path = os.path.join(save_directory, parquet_file_name)
 
                     # if Observations.ProcCode is in df.columns, change type
-                    if 'Observations.ProcCode' in df.columns:
-                        df['Observations.ProcCode'] = df['Observations.ProcCode'].astype(str)
-                    if 'Observations.Observation.component.extension.8.valueString' in df.columns:
-                        df['Observations.Observation.component.extension.8.valueString'] = df['Observations.Observation.component.extension.8.valueString'].astype(str) 
-                    if 'Observations.Observation.attr.procCode' in df.columns:
-                        df['Observations.Observation.attr.procCode'] = df['Observations.Observation.attr.procCode'].astype(str)
-                    if 'Observations.Observation.component.extension.3.valueString' in df.columns:
-                        df['Observations.Observation.component.extension.3.valueString'] = df['Observations.Observation.component.extension.3.valueString'].astype(str)
-                    if 'Observations.Observation.component.extension.4.valueString' in df.columns:
-                        df['Observations.Observation.component.extension.4.valueString'] = df['Observations.Observation.component.extension.4.valueString'].astype(str)
-                    if 'Observations.Observation.component.extension.7.valueString' in df.columns:
-                        df['Observations.Observation.component.extension.7.valueString'] = df['Observations.Observation.component.extension.7.valueString'].astype(str)
-                    if 'Observations.Observation.component.code.coding.0.code' in df.columns:
-                        df['Observations.Observation.component.code.coding.0.code'] = df['Observations.Observation.component.code.coding.0.code'].astype(str)
-                    if 'Observations.Observation.component.extension.6.valueString' in df.columns:
-                        df['Observations.Observation.component.extension.6.valueString'] = df['Observations.Observation.component.extension.6.valueString'].astype(str)
+                    cols = [
+                        'Observations.ProcCode', 
+                        'Observations.Observation.attr.procCode', 
+                        'Observations.Observation.component.code.coding.0.code'
+                    ] + [f'Observations.Observation.component.extension.{num}.valueString' for num in [3, 4, 6, 7, 8]]
+                    for col in cols:
+                        if col in df.columns:
+                            df[col] = df[col].astype(str)
 
                     # Save the DataFrame to Parquet format
                     df.to_parquet(parquet_file_path, compression='gzip', index=False)
