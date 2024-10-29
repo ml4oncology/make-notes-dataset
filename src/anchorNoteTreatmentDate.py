@@ -70,6 +70,7 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, EDVisitDataDir,
                         processed_note=('note', lambda x: '\n'.join(x)),
                         maxEPRdate=('EPRDate', 'max'),
                         stats_physician=('processed_physician_name','unique'),
+                        stats_dictatedBy=('dictated_by','unique'),
                         stats_noteType=('Observations.ProcName','unique')).reset_index()
         mergedNotes.rename(columns={"MRN": "mrn", "processed_note": "note"}, inplace=True)
         mergedNotes['processed_date'] = mergedNotes['processed_date'].dt.date
@@ -83,7 +84,7 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, EDVisitDataDir,
             mergedNotes = mergedNotes.merge(firstNote, on="mrn")
             mergedNotes['appended_first_note'] = mergedNotes.apply( lambda x: x['note'] if x['note'] == x['first_note'] else x['first_note'] + '\n' + x['note'], axis = 1  )
             # retain only columns of interest
-            mergedNotes = mergedNotes[['mrn','processed_date','maxEPRdate','appended_first_note','stats_physician','stats_noteType']]
+            mergedNotes = mergedNotes[['mrn','processed_date','maxEPRdate','appended_first_note','stats_physician','stats_dictatedBy','stats_noteType']]
             mergedNotes.rename(columns={"appended_first_note": "note"}, inplace=True)
         
         elif configName == 'firstVisitOnly-medOnc-ConsultLetterClinic':
@@ -124,7 +125,7 @@ def anchorNoteTreatmentDate(dataPath, treatmentDataPath, EDVisitDataDir,
     df_treat = get_event_labels(df_treat, df_target_ed, event_name='ED_visit', extra_cols=['CTAS_score', 'CEDIS_complaint'])
     
     # exclude immediate events
-    df_treat = indicate_immediate_events(df_treat, targ_cols='target_ED_visit', date_cols=['target_ED_visit_date'])
+    df_treat = indicate_immediate_events(df_treat, targ_cols=['target_ED_visit'], date_cols=['target_ED_visit_date'])
 
     # process symptom targets
     target_pt_increases = [1, 3]
