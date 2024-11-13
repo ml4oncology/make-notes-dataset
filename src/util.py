@@ -383,10 +383,10 @@ def get_last_updated(jsonDir, filePartNum, procNames):
 
     return dfLastUpdated
 
-def get_last_updated_missing_ci_notes(jsonDir, filePartNum, procNames):
+def get_last_updated_clinic_ci_notes(jsonDir, filePartNum, procNames):
     """
         Extract the lastUpdated column from the raw json file since it's not present
-        in the processed CSV files. This is only for the missing .CI notes.
+        in the processed CSV files. This is only for the clinic .CI notes.
 
         jsonDir: directory where the raw json files are saved
         filePartNum: file part number to be processed

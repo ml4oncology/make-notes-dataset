@@ -5,12 +5,12 @@ import argparse
 import logging
 from util import (process_date, process_physician, 
                    get_last_updated,
-                   get_last_updated_missing_ci_notes)
+                   get_last_updated_clinic_ci_notes)
 
 logger = logging.getLogger(__name__)
 
-def split_metadata_col_missing(note_text):
-    """ Split value into meta data and notes data for the missing notes case.
+def split_metadata_col_clinic(note_text):
+    """ Split value into meta data and notes data for the clinic notes case.
     """
     if '\n' in note_text:
         meta_data = 'clinical_note'
@@ -31,7 +31,7 @@ def split_metadata_col_missing(note_text):
     return meta_data, text_data
 
 def create_metadata(df):
-    """ Create metadata column for dataframe in the non missing notes case."""
+    """ Create metadata column for dataframe in the observation notes case."""
 
     # Columns to keep in the processed data frame
     columns_to_keep = [
@@ -120,7 +120,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
 
     df = df.rename(columns=new_column_names)
 
-    # if missing, make adjustments to the dataframe
+    # if clinic, make adjustments to the dataframe
     if clinic_notes:
         df = df.loc[df['note_text'].apply(lambda x: len(x.strip())) > 1].copy()
         # add EPR date
@@ -131,7 +131,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
     mrn_map = dict(zip(mrns['RESEARCH_ID'], mrns['MRN']))
     df['mrn'] = df['PATIENT_RESEARCH_ID'].map(mrn_map)
 
-    # extract only procedures of interest (if condition if missing)
+    # extract only procedures of interest (if condition if clinic)
     PROCEDURE_NAMES_OF_INTEREST = [
         'Letter',
         'Consultation Note',
@@ -154,7 +154,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
 
     # create metadata column
     if clinic_notes:
-        df['meta_data'], df['text_data'] = zip(*df['note_text'].apply(lambda x: split_metadata_col_missing(x)))
+        df['meta_data'], df['text_data'] = zip(*df['note_text'].apply(lambda x: split_metadata_col_clinic(x)))
         df = df.reset_index()
     else:
         df = create_metadata(df)
@@ -199,7 +199,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
     map_notes_meta = {elem: elem.replace(' ', '_').replace('-', '_').replace('/', '_') for elem in notes_metadata}
     map_other_meta = {elem: elem.replace(' ', '_').replace('-', '_').replace('/', '_').replace("'", '_') for elem in other_metadata}
 
-    # make adjustments if missing notes case
+    # make adjustments if clinic notes case
     if clinic_notes:
         # drop rows which have duplicate values for text_data if meta data is in other_meta
         df_all_other_meta = df.loc[~df['meta_data'].isin(other_metadata)].copy()
@@ -237,7 +237,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
     n_patient_obs = df_meta_of_interest[['PATIENT_RESEARCH_ID', visit_id_col]].copy().drop_duplicates().shape[0]
     assert np.allclose(pivot_data_df.shape[0], n_patient_obs), "Number of observations does not match number of patients"
 
-    # if missing, fix Medical Records Report meta data
+    # if clinic, fix Medical Records Report meta data
     if clinic_notes:
         mask = (pivot_data_df['medical_records_report'] == 'Medical Records Report') & pivot_data_df['clinical_note'].notna()
         pivot_data_df.loc[mask, 'medical_records_report'] = pivot_data_df.loc[mask, 'clinical_note']
@@ -274,7 +274,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
 
     # extract and merge last_updated column
     if clinic_notes:
-        df_last_updated = get_last_updated_missing_ci_notes(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
+        df_last_updated = get_last_updated_clinic_ci_notes(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
     else:
         df_last_updated = get_last_updated(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
     pivot_data_df = pivot_data_df.merge(df_last_updated, how='left', on=['PATIENT_RESEARCH_ID', visit_id_col])
@@ -296,7 +296,7 @@ if __name__ == "__main__":
     parser.add_argument("json_dir", help = "json directory", type = str) # json directory
     parser.add_argument("save_dir", help = "save directory", type = str) # save directory
     parser.add_argument("mrn_file", help = "MRN file", type = str) # file where MRN is saved
-    parser.add_argument("clinic_notes", help = "MRN missing notes", type = int) # missing notes after 2017
+    parser.add_argument("clinic_notes", help = "MRN clinic notes", type = int) # clinic notes after 2017
     parser.add_argument("file_part_num", help = "file part number", type = int) # file part number
     args = parser.parse_args()
 
