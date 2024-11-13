@@ -12,20 +12,20 @@ partition="all"
 save_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04"
 mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part4.csv"
 
-data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/raw_parquet_gzip_notes_p1"
-json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/raw_json_p1"
-missing_notes=0
+data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/raw_parquet_gzip_notes_observations"
+json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/raw_json_observations"
+clinic_notes=0
 upper_limit=598
 for ((i=0; i<=upper_limit; i++))
 do
-    pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/process_notes.py $data_dir $json_dir $save_dir $mrn_file $missing_notes $i"
+    pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/process_notes.py $data_dir $json_dir $save_dir $mrn_file $clinic_notes $i"
 done
 
-data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/raw_parquet_gzip_notes_p2"
-json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/raw_json_p2"
-missing_notes=1
+data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/raw_parquet_gzip_notes_clinic"
+json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/raw_json_clinic"
+clinic_notes=1
 upper_limit=598
 for ((i=0; i<=upper_limit; i++))
 do
-    pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/process_notes.py $data_dir $json_dir $save_dir $mrn_file $missing_notes $i"
+    pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/process_notes.py $data_dir $json_dir $save_dir $mrn_file $clinic_notes $i"
 done

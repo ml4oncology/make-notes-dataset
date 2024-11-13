@@ -62,7 +62,7 @@ def create_metadata(df):
     # only keep columns in the processed data frame
     return df[columns_to_keep].copy()
 
-def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_part_num):
+def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_part_num):
     """ Process each dataset pulled by the CDI team. 
         
         Restrict to a few procedures only.
@@ -75,12 +75,12 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
             json_dir: directory path where the raw json files are saved
             save_dir: directory path where processed data frame will be saved
             mrn_file: file path for patient code to MRN map
-            missing_notes: are these the missing notes after 2018?
+            clinic_notes: are these the clinic notes?
             file_part_num: file part number to be processed 
     """
 
     # generate file name of gzip file
-    if missing_notes:
+    if clinic_notes:
         file_name = f"2Blast_part4_{file_part_num}_clinic_notes.parquet.gzip"
     else:
         file_name = f"2Blast_part4_{file_part_num}_results_with_status_dates.parquet.gzip"
@@ -93,7 +93,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
     df.replace({'None': None}, inplace=True)
 
     # rename certain columns
-    if missing_notes:
+    if clinic_notes:
         new_column_names = {
             'ClinicNotes.ClinicNote.note.text': 'note_text',  
             'ClinicNotes.ClinicNote.date': 'note_date',
@@ -121,7 +121,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
     df = df.rename(columns=new_column_names)
 
     # if missing, make adjustments to the dataframe
-    if missing_notes:
+    if clinic_notes:
         df = df.loc[df['note_text'].apply(lambda x: len(x.strip())) > 1].copy()
         # add EPR date
         df['epr_date'] = df['note_date'].fillna(df['effective_date_time'])
@@ -153,7 +153,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
     df = df[mask].copy()    
 
     # create metadata column
-    if missing_notes:
+    if clinic_notes:
         df['meta_data'], df['text_data'] = zip(*df['note_text'].apply(lambda x: split_metadata_col_missing(x)))
         df = df.reset_index()
     else:
@@ -200,7 +200,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
     map_other_meta = {elem: elem.replace(' ', '_').replace('-', '_').replace('/', '_').replace("'", '_') for elem in other_metadata}
 
     # make adjustments if missing notes case
-    if missing_notes:
+    if clinic_notes:
         # drop rows which have duplicate values for text_data if meta data is in other_meta
         df_all_other_meta = df.loc[~df['meta_data'].isin(other_metadata)].copy()
         df_physician_meta = df.loc[df['meta_data'].isin(other_metadata)].copy()
@@ -238,7 +238,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
     assert np.allclose(pivot_data_df.shape[0], n_patient_obs), "Number of observations does not match number of patients"
 
     # if missing, fix Medical Records Report meta data
-    if missing_notes:
+    if clinic_notes:
         mask = (pivot_data_df['medical_records_report'] == 'Medical Records Report') & pivot_data_df['clinical_note'].notna()
         pivot_data_df.loc[mask, 'medical_records_report'] = pivot_data_df.loc[mask, 'clinical_note']
         mask = pivot_data_df['medical_records_report'].isna() & pivot_data_df['clinical_note'].notna()
@@ -260,7 +260,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
         pivot_data_df.drop(columns='clinical_note', inplace=True)
 
     # apply correction to the date 
-    if missing_notes:
+    if clinic_notes:
         pivot_data_df['date_dictated'] = pd.to_datetime(pivot_data_df['date_dictated'], utc=True, format='mixed')
         pivot_data_df['epr_date'] = pd.to_datetime(pivot_data_df['epr_date'], utc=True)
         pivot_data_df['visit_date'] = pivot_data_df['date_dictated'].dt.date
@@ -273,7 +273,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
     pivot_data_df = process_physician(pivot_data_df)
 
     # extract and merge last_updated column
-    if missing_notes:
+    if clinic_notes:
         df_last_updated = get_last_updated_missing_ci_notes(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
     else:
         df_last_updated = get_last_updated(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
@@ -285,10 +285,10 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, missing_notes, file_pa
     pivot_data_df.drop('new_line_only', axis=1, inplace=True)
 
     # save extracted data
-    if missing_notes:
-        pivot_data_df.to_parquet(f"{save_dir}/processed_missing_clinical_notes_{file_part_num}.parquet.gzip", compression='gzip', index=False)
+    if clinic_notes:
+        pivot_data_df.to_parquet(f"{save_dir}/processed_clinic_notes_{file_part_num}.parquet.gzip", compression='gzip', index=False)
     else:
-        pivot_data_df.to_parquet(f"{save_dir}/processed_clinical_notes_{file_part_num}.parquet.gzip", compression='gzip', index=False)
+        pivot_data_df.to_parquet(f"{save_dir}/processed_observation_notes_{file_part_num}.parquet.gzip", compression='gzip', index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -296,9 +296,9 @@ if __name__ == "__main__":
     parser.add_argument("json_dir", help = "json directory", type = str) # json directory
     parser.add_argument("save_dir", help = "save directory", type = str) # save directory
     parser.add_argument("mrn_file", help = "MRN file", type = str) # file where MRN is saved
-    parser.add_argument("missing_notes", help = "MRN missing notes", type = int) # missing notes after 2017
+    parser.add_argument("clinic_notes", help = "MRN missing notes", type = int) # missing notes after 2017
     parser.add_argument("file_part_num", help = "file part number", type = int) # file part number
     args = parser.parse_args()
 
     process_notes(args.data_dir, args.json_dir, args.save_dir, 
-                  args.mrn_file, args.missing_notes, args.file_part_num)
+                  args.mrn_file, args.clinic_notes, args.file_part_num)

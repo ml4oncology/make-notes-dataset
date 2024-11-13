@@ -25,10 +25,10 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
     merged_notes = dict()
     for note_type in ['observations', 'clinical']:
         if note_type == 'observations':
-            fname = 'processed_clinical_notes'
+            fname = 'processed_observation_notes'
             file_part_max = file_part_max_observations
         else:
-            fname = 'processed_missing_clinical_notes'
+            fname = 'processed_clinic_notes'
             file_part_max = file_part_max_clinical
         
         merged_notes_list = []
