@@ -1,5 +1,4 @@
 import pandas as pd
-from pathlib import Path
 import json
 import re
 import sys
@@ -266,8 +265,8 @@ def strip_title(x):
 
     x: name of physician/staff
     """
-    if x is None: return None
-
+    if not isinstance(x, str): return None
+    
     # strip extra white spaces
     x = re.sub(' +', ' ', x)
 
@@ -336,8 +335,7 @@ def process_physician(df):
     df['processed_physician_name'] = df['processed_physician_name'].replace(aliasDictionary)
 
     # also strip titles from dictated by
-    maskNotNull = df['dictated_by'].notnull()
-    df.loc[maskNotNull, 'dictated_by'] = df.loc[maskNotNull, 'dictated_by'].apply(lambda x: strip_title(x))
+    df['dictated_by'] = df['dictated_by'].apply(strip_title)
 
     return df
 
