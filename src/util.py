@@ -8,7 +8,7 @@ sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/processed/clinical_n
 # load constants from file
 from constants import ambigousPhysicians, aliasDictionary
 
-def process_date( df ):
+def process_date(df):
     """
     Process date of visit column according to the following hierarchy:
     date_dictated > effective_date_time > occurrence_date_time_from_order
@@ -23,20 +23,21 @@ def process_date( df ):
     df['effective_date_time'] = pd.to_datetime(df['effective_date_time'], utc=True)
 
     # convert date_dictated from string to datetime column by extracting date only and excluding day of week
+    # the date dictated string has this format: Wed, 23 Jan 2019
     maskDateDictated = df['date_dictated'].notnull()
-    df.loc[maskDateDictated, 'date_dictated'] = pd.to_datetime(df.loc[maskDateDictated, 'date_dictated'].map( lambda x: x.split(',')[1][1:] ) , format='%d %b %Y')
+    df.loc[maskDateDictated, 'date_dictated'] = pd.to_datetime(df.loc[maskDateDictated, 'date_dictated'].map(lambda x: x.split(',')[1][1:]), format='%d %b %Y')
     df['date_dictated'] = pd.to_datetime(df['date_dictated'], utc=True)
 
     # create a visit date column according to hierarchy of "accuracy"
-    df['visit_date'] = df['date_dictated'].dt.date
-    visitDateNullMask = df['visit_date'].isnull()
-    df.loc[visitDateNullMask, 'visit_date'] = df.loc[visitDateNullMask, 'effective_date_time'].dt.date
-    visitDateNullMask = df['visit_date'].isnull()
-    df.loc[visitDateNullMask, 'visit_date'] = df.loc[visitDateNullMask, 'occurrence_date_time_from_order'].dt.date
+    df['visit_date'] = (
+        df['date_dictated']
+        .fillna(df['effective_date_time'])
+        .fillna(df['occurrence_date_time_from_order'])
+        ).dt.date
 
     return df
 
-def extract_date_from_note( x ):
+def extract_date_from_note(x):
     """
     Extract the date from note. This is heuristic and based on trial and error.
     It is not perfect and all-encompassing.
@@ -65,15 +66,15 @@ def extract_date_from_note( x ):
                              'date of clinic visit:']
     
     xLower = x.lower()
-    inText = [ 1 if elem in xLower else 0 for elem in date_description_list ]
+    inText = [1 if elem in xLower else 0 for elem in date_description_list]
     if sum( inText ) == 0:
         return None
     else:
         nonzero_descriptor_id = [idx for idx, val in enumerate(inText) if val != 0]
-        return helper_date_from_note(x, date_description_list[ nonzero_descriptor_id[0] ])
+        return helper_date_from_note(x, date_description_list[nonzero_descriptor_id[0]])
 
     
-def helper_date_from_note( x, date_descrip ):
+def helper_date_from_note(x, date_descrip):
     """
     Helper function for extracting date from note in cases where a substring of the form
     "date of *" is present.
@@ -93,11 +94,11 @@ def helper_date_from_note( x, date_descrip ):
     exists = 0
 
     # some have a newline after the date description
-    idx = x.lower().find(date_descrip)
-    date_descrip_nl = date_descrip + '\n'
-    if x.lower().find(date_descrip_nl) != -1:
-        idx = x.lower().find(date_descrip_nl)
-        date_descrip = date_descrip_nl
+    idx = x.lower().find(date_descrip + '\n')
+    if idx == -1:
+        idx = x.lower().find(date_descrip)
+    else:
+        date_descrip += '\n'
 
     x = x[idx + len(date_descrip):]
     if x.find('\n') > 7 and x.find('\n') < 20:
@@ -116,7 +117,7 @@ def helper_date_from_note( x, date_descrip ):
             idx_div = x.find('<div>')
         else:
             idx_div = len(x)
-        idx_stop = min( idx_nl, idx_div )
+        idx_stop = min(idx_nl, idx_div)
         date_str = x[:idx_stop]
         
         # strip out extra spaces
@@ -140,8 +141,8 @@ def helper_date_from_note( x, date_descrip ):
         # exclude things like 26 Jul 2017 1545-1
         list_year = re.findall(r"[0-9]{4}", date_str)
         if len(list_year) > 0:
-            idx_year = date_str.find( list_year[0] )
-            date_str = date_str[ :idx_year+4 ]
+            idx_year = date_str.find(list_year[0])
+            date_str = date_str[:idx_year+4]
         else:
             # if there are no 4 digits for the year, exclude
             return None
@@ -151,7 +152,7 @@ def helper_date_from_note( x, date_descrip ):
     else:
         return None    
 
-def extract_job_num( x ):
+def extract_job_num(x):
     """
     Extract job number from the note if possible. This is heuristic 
     and based on trial and error. It is not perfect and all-encompassing.
@@ -224,10 +225,10 @@ def helper_extract_jobid_dictated_not_read(x, first):
     strToSearch = 'dictated but not read'
     if first == 1:
         # first occurrence
-        idx = x.find( strToSearch )
+        idx = x.find(strToSearch)
     else:
         # last occurrence
-        idx = x.rfind( strToSearch )
+        idx = x.rfind(strToSearch)
     # filter to this substring only
     xJob = x[idx:]
 
@@ -265,6 +266,8 @@ def strip_title(x):
 
     x: name of physician/staff
     """
+    if x is None: return None
+
     # strip extra white spaces
     x = re.sub(' +', ' ', x)
 
@@ -287,9 +290,9 @@ def strip_title(x):
     # this may affect those with first names abbreviated
     # purpose is only to find the null doctors
 
-    return ' '.join( [w for w in x.split() if len(w)>1] )
+    return ' '.join([w for w in x.split() if len(w)>1])
 
-def process_physician( df ):
+def process_physician(df):
     """
     Process attending physician name column according to the following hierarchy:
     attending_staff > dictated_by > documented_by > dictated_by_for >  dictated_by_and_or_verified_by_resident_s_attending
@@ -300,44 +303,41 @@ def process_physician( df ):
     # replace None string entries with none
     physician_cols = ['attending_staff', 'dictated_by', 'documented_by']
     if 'dictated_by_for' in df.columns:
-        physician_cols = physician_cols + ['dictated_by_for']
+        physician_cols = physician_cols.append('dictated_by_for')
     if 'dictated_by_and_or_verified_by_resident_s_attending' in df.columns:
-        physician_cols = physician_cols + ['dictated_by_and_or_verified_by_resident_s_attending']
+        physician_cols = physician_cols.append('dictated_by_and_or_verified_by_resident_s_attending')
 
     df[physician_cols] = df[physician_cols].replace('None', None)
 
     # check for ambiguous physician names in attending_staff and replace by value in dictated_by
-    maskAmbiguous = df['attending_staff'].isin( ambigousPhysicians ) 
-    df.loc[ maskAmbiguous, 'attending_staff'] = df.loc[ maskAmbiguous, 'dictated_by' ] 
+    maskAmbiguous = df['attending_staff'].isin(ambigousPhysicians) 
+    df.loc[ maskAmbiguous, 'attending_staff'] = df.loc[maskAmbiguous, 'dictated_by'] 
 
     # create a physician name column according to hierarchy of "accuracy"
-    df['physician_name'] = df['attending_staff'].copy()
     # fill missing ones with dictated_by
-    maskNull = df['physician_name'].isnull()
-    df.loc[ maskNull, 'physician_name' ] = df.loc[ maskNull, 'dictated_by' ]
     # fill missing ones with documented_by
-    maskNull = df['physician_name'].isnull()
-    df.loc[ maskNull, 'physician_name' ] = df.loc[ maskNull, 'documented_by' ]
+    df['physician_name'] = (
+        df['attending_staff']
+        .fillna(df['dictated_by'])
+        .fillna(df['documented_by'])
+    )
+
     # fill missing ones with dictated_by_for
     if 'dictated_by_for' in list(df.columns.values):
-        maskNull = df['physician_name'].isnull()
-        df.loc[ maskNull, 'physician_name' ] = df.loc[ maskNull, 'dictated_by_for' ]
+        df['physician_name'] = df['physician_name'].fillna(df['dictated_by_for'])
     # fill missing ones with dictated_by_and_or_verified_by_resident_s_attending
     if 'dictated_by_and_or_verified_by_resident_s_attending' in list(df.columns.values):
-        maskNull = df['physician_name'].isnull()
-        df.loc[ maskNull, 'physician_name' ] = df.loc[ maskNull, 'dictated_by_and_or_verified_by_resident_s_attending' ]
+        df['physician_name'] = df['physician_name'].fillna(df['dictated_by_and_or_verified_by_resident_s_attending'])
 
     # strip titles for non-null names
-    maskNotNull = df['physician_name'].notnull()
-    df['processed_physician_name'] = None
-    df.loc[ maskNotNull, 'processed_physician_name' ] = df.loc[ maskNotNull, 'physician_name' ].apply( lambda x: strip_title(x) ) 
+    df['processed_physician_name'] = df['physician_name'].apply(strip_title)
 
     # map names of medical oncologists to alias
-    df['processed_physician_name' ] = df['processed_physician_name'].replace(aliasDictionary)
+    df['processed_physician_name'] = df['processed_physician_name'].replace(aliasDictionary)
 
     # also strip titles from dictated by
     maskNotNull = df['dictated_by'].notnull()
-    df.loc[ maskNotNull, 'dictated_by' ] = df.loc[ maskNotNull, 'dictated_by' ].apply( lambda x: strip_title(x) )
+    df.loc[maskNotNull, 'dictated_by'] = df.loc[maskNotNull, 'dictated_by'].apply(lambda x: strip_title(x))
 
     return df
 
@@ -353,7 +353,7 @@ def get_last_updated(jsonDir, filePartNum, procNames):
     # load the json file
     jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_results_with_status_dates.json'
     
-    with open( jsonFileName ) as json_file:
+    with open(jsonFileName) as json_file:
         data = json.load(json_file)
 
     # tabulate patient id, obs id, last updated
@@ -369,11 +369,11 @@ def get_last_updated(jsonDir, filePartNum, procNames):
         nObs = len(data[idx]['Observations'])
         for jdx in range(nObs):
             if str(data[idx]['Observations'][jdx]['ProcName']).lower() in procNames:
-                patientList.append( data[idx]['PATIENT_RESEARCH_ID'] )
-                obsIDList.append( data[idx]['Observations'][jdx]['Observation']['_id'] )
-                lastUpdatedList.append( data[idx]['Observations'][jdx]['Observation']['meta']['lastUpdated'] )
+                patientList.append(data[idx]['PATIENT_RESEARCH_ID'])
+                obsIDList.append(data[idx]['Observations'][jdx]['Observation']['_id'])
+                lastUpdatedList.append(data[idx]['Observations'][jdx]['Observation']['meta']['lastUpdated'])
 
-    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'observation_id': obsIDList, 'last_updated': lastUpdatedList} )
+    dfLastUpdated = pd.DataFrame({'PATIENT_RESEARCH_ID': patientList, 'observation_id': obsIDList, 'last_updated': lastUpdatedList})
 
     return dfLastUpdated
 
@@ -389,7 +389,7 @@ def get_last_updated_clinic_ci_notes(jsonDir, filePartNum, procNames):
     # load the json file
     jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_clinic_notes.json'
     
-    with open( jsonFileName ) as json_file:
+    with open(jsonFileName) as json_file:
         data = json.load(json_file)
 
     # tabulate patient id, obs id, last updated
@@ -402,11 +402,11 @@ def get_last_updated_clinic_ci_notes(jsonDir, filePartNum, procNames):
         nObs = len(data[idx]['ClinicNotes'])
         for jdx in range(nObs):
             if str(data[idx]['ClinicNotes'][jdx]['ClinicNote']['code']['text']) in procNames:
-                patientList.append( data[idx]['PATIENT_RESEARCH_ID'] )
-                clinicIDList.append( data[idx]['ClinicNotes'][jdx]['ClinicNote']['_id'] )
-                lastUpdatedList.append( data[idx]['ClinicNotes'][jdx]['ClinicNote']['meta']['lastUpdated'] )
+                patientList.append(data[idx]['PATIENT_RESEARCH_ID'])
+                clinicIDList.append(data[idx]['ClinicNotes'][jdx]['ClinicNote']['_id'])
+                lastUpdatedList.append(data[idx]['ClinicNotes'][jdx]['ClinicNote']['meta']['lastUpdated'])
 
-    dfLastUpdated = pd.DataFrame( {'PATIENT_RESEARCH_ID': patientList, 'clinical_note_id': clinicIDList, 'last_updated': lastUpdatedList} )
+    dfLastUpdated = pd.DataFrame({'PATIENT_RESEARCH_ID': patientList, 'clinical_note_id': clinicIDList, 'last_updated': lastUpdatedList})
 
     return dfLastUpdated
 

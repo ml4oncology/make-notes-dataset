@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 def split_metadata_col_clinic(note_text):
     """ Split value into meta data and notes data for the clinic notes case.
+    The expected format is of the form 10060/Report Type: Clinic Note.
+    However, if the content is a clinic note, the content of the cell is just the
+    note. It deviates from this format. This is handled by the if statement below.
     """
     if '\n' in note_text:
         meta_data = 'clinical_note'
@@ -208,6 +211,9 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
         df = pd.concat([df_all_other_meta, df_physician_meta], axis=0)
 
         # merge text values if the meta_data is the same
+        # this can happen since the note is sometimes split such as
+        # 14001/Medical Records Report: Date of Visit: 17 Jan 2019
+        # 14001/Medical Records Report: Dear Dr. X:
         group_by_cols = ['mrn', 'PATIENT_RESEARCH_ID', 'clinical_note_id', 'code_text', 'epr_date', 'encounter_reference', 'meta_data']
         df_grouped = df.groupby(group_by_cols).agg(text_data=('text_data', lambda x: '\n'.join(x))).reset_index()
         df_grouped['meta_data'] = df_grouped['meta_data'].str.lower()

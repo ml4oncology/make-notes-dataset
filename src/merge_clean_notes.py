@@ -44,16 +44,12 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
 
     # merge the observations and clinical dataframe
 
-    cols_to_keep_observations = ['mrn', 'Observations.ProcName', 'clinical_notes', 
-                                 'visit_date', 'processed_physician_name', 
-                                 'last_updated', 'dictated_by']
-    merged_notes['observations'] = merged_notes['observations'][cols_to_keep_observations].copy()
-
-    cols_to_keep_clinical = ['mrn', 'code_text', 'clinical_notes', 
-                             'visit_date', 'processed_physician_name', 
-                             'last_updated', 'dictated_by']
-    merged_notes['clinical'] = merged_notes['clinical'][cols_to_keep_clinical].copy()
+    cols_to_keep = ['mrn', 'Observations.ProcName', 'clinical_notes', 
+                    'visit_date', 'processed_physician_name', 
+                    'last_updated', 'dictated_by']
     merged_notes['clinical'].rename(columns={'code_text':"Observations.ProcName"}, inplace=True)
+    merged_notes['observations'] = merged_notes['observations'][cols_to_keep].copy()
+    merged_notes['clinical'] = merged_notes['clinical'][cols_to_keep].copy()
     notes_df = pd.concat([merged_notes['observations'], merged_notes['clinical']], ignore_index=True)
 
     # # add physician name
