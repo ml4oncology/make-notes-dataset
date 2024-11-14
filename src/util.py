@@ -333,13 +333,7 @@ def process_physician( df ):
     df.loc[ maskNotNull, 'processed_physician_name' ] = df.loc[ maskNotNull, 'physician_name' ].apply( lambda x: strip_title(x) ) 
 
     # map names of medical oncologists to alias
-    def map_medOnc(x, medOncMap):
-        if x not in medOncMap:
-            return x
-        else:
-            return medOncMap[x]
-    
-    df.loc[ maskNotNull, 'processed_physician_name' ] = df.loc[ maskNotNull, 'processed_physician_name' ].apply( lambda x: map_medOnc(x, aliasDictionary) )
+    df['processed_physician_name' ] = df['processed_physician_name'].replace(aliasDictionary)
 
     # also strip titles from dictated by
     maskNotNull = df['dictated_by'].notnull()

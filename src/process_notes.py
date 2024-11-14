@@ -296,7 +296,7 @@ if __name__ == "__main__":
     parser.add_argument("json_dir", help = "json directory", type = str) # json directory
     parser.add_argument("save_dir", help = "save directory", type = str) # save directory
     parser.add_argument("mrn_file", help = "MRN file", type = str) # file where MRN is saved
-    parser.add_argument("clinic_notes", help = "MRN clinic notes", type = int) # clinic notes after 2017
+    parser.add_argument("clinic_notes", help = "MRN clinic notes", action='store_true') # clinic notes after 2017
     parser.add_argument("file_part_num", help = "file part number", type = int) # file part number
     args = parser.parse_args()
 
