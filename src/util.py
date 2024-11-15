@@ -301,10 +301,11 @@ def process_physician(df):
 
     # replace None string entries with none
     physician_cols = ['attending_staff', 'dictated_by', 'documented_by']
+
     if 'dictated_by_for' in df.columns:
-        physician_cols = physician_cols.append('dictated_by_for')
+        physician_cols.append('dictated_by_for')
     if 'dictated_by_and_or_verified_by_resident_s_attending' in df.columns:
-        physician_cols = physician_cols.append('dictated_by_and_or_verified_by_resident_s_attending')
+        physician_cols.append('dictated_by_and_or_verified_by_resident_s_attending')
 
     df[physician_cols] = df[physician_cols].replace('None', None)
 

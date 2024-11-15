@@ -5,7 +5,7 @@ userName="t127556uhn"
 memory=16
 condaEnv="~/miniforge3/envs/basic/bin/python"
 nGPU=0
-run_time="1-00:00:00"
+run_time="0-02:00:00"
 partition="all"
 
 parquet_gzip_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04"
