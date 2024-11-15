@@ -197,18 +197,19 @@ def extract_job_num(x):
         
         return jobID
     
-    elif 'visit number' in x:
+    # elif 'visit number' in x:
+    # NOTE: Can't use this to filter out duplicates
         
-        idx = x.find('visit number:')
-        x_visit = x[idx:]
+    #     idx = x.find('visit number:')
+    #     x_visit = x[idx:]
 
-        # find the first \n
-        idx_nl = x_visit.find('\n')
-        visit_number = str(x_visit[:idx_nl])
-        jobID = re.sub(r'\s+', ' ', visit_number)
-        jobID = jobID.replace(' ', '')
+    #     # find the first \n
+    #     idx_nl = x_visit.find('\n')
+    #     visit_number = str(x_visit[:idx_nl])
+    #     jobID = re.sub(r'\s+', ' ', visit_number)
+    #     jobID = jobID.replace(' ', '')
 
-        return jobID
+    #     return jobID
 
 def helper_extract_jobid_dictated_not_read(x, first):
     """
