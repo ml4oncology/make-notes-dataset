@@ -81,8 +81,7 @@ Then take a look into the `scripts` and `notebooks` folders.
 ├── setup.cfg               <- Declarative configuration of your project.
 ├── setup.py                <- [DEPRECATED] Use `python setup.py develop` to install for
 │                              development or `python setup.py bdist_wheel` to build.
-└── src
-    └── make_notes_dataset  <- Actual Python package where the main functionality goes.
+└── src                     <- Actual Python package where the main functionality goes.
 ```
 
 ## Notebook description
@@ -93,9 +92,9 @@ This is a brief description of the notebooks in this repository.
    - Investigate the column names, their contents, and the relevant metadata with clinical notes in the processed CSV files provided by CDI.
 * 1.validation-DateInNote_vs_EPRdate.ipynb
    - Extract the date of visit from the clinical note, if possible, and compare it with the EPR date.
-* 1.validation-MissingNotes.ipynb
+* 1.1-wy-EDA-missing-notes.ipynb
    - Obtain random sample of notes between January 1, 2008 and February 28, 2018 to calculate statistics on missingness with respect to EPR.
-* 1.validation-validation-PlotNote_PatientCount.ipynb
+* 1.2-wy-EDA-plot-counts.ipynb
    - Produce plots to validate counts of clinical notes in the dataset.
 
 ## Procedure for cleaning the data set
