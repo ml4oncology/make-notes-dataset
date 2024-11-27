@@ -3,7 +3,7 @@ export PATH=$PATH:$(pwd)
 
 userName="t127556uhn"
 memory=16
-condaEnv="~/miniforge3/envs/basic/bin/python"
+condaEnv="~/miniforge3/envs/LLMfinetune/bin/python"
 nGPU=0
 run_time="0-01:00:00"
 partition="all"
