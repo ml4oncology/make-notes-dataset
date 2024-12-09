@@ -21,7 +21,7 @@ def drop_samples_outside_study_date(data_dir, save_dir, start_date, end_date):
     merged_notes.sort_values(by='processed_date', inplace=True)
 
     # obtain the first entry for each MRN
-    df_first_visit = merged_notes.groupby(['mrn']).first().reset_index()
+    df_first_visit = merged_notes.groupby(['mrn']).first(skipna=False).reset_index()
 
     # find the MRNs with first visit date on or after the start date
     mrn_after_study_start = df_first_visit.loc[df_first_visit['processed_date'] >= start_date]['mrn'].tolist()
