@@ -5,6 +5,10 @@ import argparse
 import shutil
 import logging
 import math
+import csv
+import re
+import sys
+import ctypes as ct
 logging.basicConfig(
     level=logging.INFO         # Log level (you can adjust it to INFO, DEBUG, etc.)
 )
@@ -64,16 +68,49 @@ def extract_zip(zip_directory, save_directory, batch_index=None, total_batches=N
                     os.remove(unzipped_file_path)  # Delete the file
 
                 elif unzipped_file.endswith('.csv'):
-                    # Read the CSV file and convert to Parquet
-                    try:
-                        df = pd.read_csv(unzipped_file_path, low_memory=False)
-                    except:
-                        try:
-                            df = pd.read_csv(unzipped_file_path, low_memory=False, quotechar='"', escapechar='\\')
-                        except:
-                            logger.error(f"Error reading {unzipped_file_path}")
-                            df = pd.read_csv(unzipped_file_path, low_memory=False, quotechar='"', escapechar='\\', on_bad_lines='warn')
+                    # fix any problems with the csv file
+                    cleaned_output_file = unzipped_file_path.replace(".csv", "_cleaned.csv")
 
+                    # Open input file for reading and output file for writing
+                    with open(unzipped_file_path, "r", newline="", encoding="utf-8") as infile, \
+                        open(cleaned_output_file, "w", newline="", encoding="utf-8") as outfile:
+
+                        reader = csv.reader(infile)
+                        writer = csv.writer(outfile)
+
+                        # Read the header
+                        header = next(reader)
+                        writer.writerow(header)
+
+                        clinic_note = 1
+                        notes_col1 = "Observations.Observation.component.valueString"
+                        notes_col2 = "Observations.Observation.component.extension.2.valueString"
+
+                        if notes_col1 in header:
+                            clinic_note = 0
+
+                        if clinic_note == 0:
+                            col_indexes = [header.index(notes_col1), header.index(notes_col2)]
+
+                            csv.field_size_limit(int(ct.c_ulong(-1).value // 2))
+                            # Process the rows
+                            for row in reader:
+                                for col_index in col_indexes:
+                                    if col_index < len(row):
+                                        row[col_index] = re.sub(r"\\\.br\\", "", row[col_index])
+                                        if row[col_index].endswith("\\"):
+                                            # row[col_index] = row[col_index][:-1]  # Remove trailing slash
+                                            row[col_index] = row[col_index].rstrip("\\")
+                                writer.writerow(row)
+                        else:
+                            cleaned_output_file = unzipped_file_path
+
+                    try:
+                        df = pd.read_csv(cleaned_output_file, low_memory=False, quotechar='"', escapechar='\\')
+                    except:
+                        logger.error(f"Error reading {cleaned_output_file}")
+                        df = pd.read_csv(cleaned_output_file, low_memory=False, quotechar='"', escapechar='\\', on_bad_lines='warn')
+                            
                     parquet_file_name = unzipped_file.replace('.csv', '.parquet.gzip')
                     parquet_file_path = os.path.join(save_directory, parquet_file_name)
 
