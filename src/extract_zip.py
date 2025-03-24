@@ -119,6 +119,7 @@ def extract_zip(zip_directory, save_directory, batch_index=None, total_batches=N
                         'Observations.ProcCode', 
                         'Observations.Observation.attr.procCode', 
                         'Observations.Observation.component.code.coding.0.code',
+                        'Observations.Observation.component.valueQuantity.value',
                         'ClinicNotes.ClinicNote.identifier.0.value',
                         'ClinicNotes.ClinicNote.code.coding.0.code'
                     ] + [
