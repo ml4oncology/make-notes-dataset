@@ -18,8 +18,8 @@ def process_date(df):
     # replace dummy dates with None and convert columns to datetime 
     df['occurrence_date_time_from_order'].replace('dummy', None, inplace=True)
     df['effective_date_time'].replace('dummy', None, inplace=True)
-    df['occurrence_date_time_from_order'] = pd.to_datetime(df['occurrence_date_time_from_order'], utc=True)
-    df['effective_date_time'] = pd.to_datetime(df['effective_date_time'], utc=True)
+    df['occurrence_date_time_from_order'] = pd.to_datetime(df['occurrence_date_time_from_order'], utc=True, format='ISO8601')
+    df['effective_date_time'] = pd.to_datetime(df['effective_date_time'], utc=True, format='ISO8601')
 
     # convert date_dictated from string to datetime column by extracting date only and excluding day of week
     # the date dictated string has this format: Wed, 23 Jan 2019
@@ -61,13 +61,29 @@ def extract_date_from_note(x):
     date_description_list = ['date of visit:', 'date of procedure:', 'date of surgery:', 'date of op:',\
                              'date of operation:', 'date of or:', 'date of service:',\
                              'date of the procedure:', 'date of assessment:', 'follow-up date:',\
-                             'visit date:', 'date dictated:', 'contact date:', 'date:',\
-                             'date of clinic visit:']
+                             'visit date:', 'date dictated:', 'contact date:', 'date of discharge:',\
+                             'discharge date:', 'date of clinic visit:', 'date of death:',\
+                             'date of phone call:', 'date:']
     
     xLower = x.lower()
     inText = [1 if elem in xLower else 0 for elem in date_description_list]
     if sum( inText ) == 0:
-        return None
+
+        date_patterns = [
+        r'\b\d{1,2}\s+[A-Za-z]+\s+\d{4}\b',      # e.g., 12 February 2007
+        r'\b[A-Za-z]+\s+\d{1,2},\s*\d{4}\b',      # e.g., January 3, 2008
+        r'\b[A-Za-z]+\s+\d{1,2}(st|nd|rd|th)?,\s*\d{4}\b',  # e.g., November 27th, 2009
+        r'\b\d{1,2}[A-Za-z]+\d{4}\b'             # e.g., 10April2004, 3May2005
+        ]
+
+        # Combine all patterns into one regex
+        full_pattern = "|".join(date_patterns)
+
+        # Search for a date at the beginning of the text
+        match = re.search(full_pattern, x)
+
+        return match.group() if match else None
+    
     else:
         nonzero_descriptor_id = [idx for idx, val in enumerate(inText) if val != 0]
         return helper_date_from_note(x, date_description_list[nonzero_descriptor_id[0]])
@@ -92,18 +108,37 @@ def helper_date_from_note(x, date_descrip):
     
     exists = 0
 
-    # some have a newline after the date description
-    idx = x.lower().find(date_descrip + '\n')
-    if idx == -1:
-        idx = x.lower().find(date_descrip)
+    # Use regex to find date_descrip followed by spaces and a newline
+    match = re.search(rf"({re.escape(date_descrip)})(\s*)\n", x, re.IGNORECASE)
+
+    if match:
+        idx = match.start()
+        spaces = match.group(2)  # Capture the spaces between date_descrip and \n
+        date_descrip += spaces + '\n'
     else:
-        date_descrip += '\n'
+        idx = x.lower().find(date_descrip)
+
+    # some have a newline after the date description
+    # idx = x.lower().find(date_descrip + '\n')
+    # if idx == -1:
+    #     idx = x.lower().find(date_descrip)
+    # else:
+    #     date_descrip += '\n'
 
     x = x[idx + len(date_descrip):]
-    if x.find('\n') > 7 and x.find('\n') < 20:
+    if x.find('\n') >= 7 and x.find('\n') < 20:
         exists = 1
-    elif x.find('<div>') > 7 and x.find('<div>') < 20:
+    elif x.find('<div>') >= 7 and x.find('<div>') < 20:
         exists = 1
+    
+    if exists == 0:
+        x = re.sub(r' +', ' ', x)
+        if x.find('\n') >= 7 and x.find('\n') < 20:
+            exists = 1
+        elif x.find('<div>') >= 7 and x.find('<div>') < 20:
+            exists = 1
+
+    # try_formatting_further = 1
         
     if exists == 1:
 
@@ -129,26 +164,33 @@ def helper_date_from_note(x, date_descrip):
 
         # if there are more than 4 digits, exclude
         list_year = re.findall(r"[0-9]{4}[0-9]", date_str)
-        if len(list_year) > 0:
-            return None
+        # if len(list_year) > 0:
+            # try_formatting_further = 1
         
-        # strip out "-"
-        # may be problematic for some notes but we can adjust this later
-        # by taking the EPR date instead
-        date_str = date_str.replace("-","")
+        if len(list_year) <= 0:
         
-        # exclude things like 26 Jul 2017 1545-1
-        list_year = re.findall(r"[0-9]{4}", date_str)
-        if len(list_year) > 0:
-            idx_year = date_str.find(list_year[0])
-            date_str = date_str[:idx_year+4]
-        else:
-            # if there are no 4 digits for the year, exclude
-            return None
+            # strip out "-"
+            # may be problematic for some notes but we can adjust this later
+            # by taking the EPR date instead
+            date_str = date_str.replace("-","")
+            
+            # exclude things like 26 Jul 2017 1545-1
+            list_year = re.findall(r"[0-9]{4}", date_str)
+            if len(list_year) > 0:
+                idx_year = date_str.find(list_year[0])
+                date_str = date_str[:idx_year+4]
+                # try_formatting_further = 0
+                return date_str
+            
+            # else:
+            #     # if there are no 4 digits for the year, exclude
+            #     # return None
+            #     try_formatting_further = 1
 
-        return date_str
-    
-    else:
+    try:
+        match = re.search(r'\b\d{1,2}[A-Za-z]{3}\d{2,4}\b', x)
+        return match.group()
+    except:
         return None    
 
 def extract_job_num(x):
@@ -341,18 +383,21 @@ def process_physician(df):
 
     return df
 
-def get_last_updated(jsonDir, filePartNum, procNames):
+def get_last_updated(jsonDir, filePartNum, filename, procNames):
     """
         Extract the lastUpdated column from the raw json file since it's not present
         in the processed CSV files.
 
         jsonDir: directory where the raw json files are saved
         filePartNum: file part number to be processed
+        filename: file name of the json file
         procNames: list of procedure names of interest
     """
     # load the json file
-    jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_results_with_status_dates.json'
-    
+    filename = filename.replace('file-part-num', str(filePartNum)).replace('parquet.gzip', 'json')
+    # jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_results_with_status_dates.json'
+    jsonFileName = f'{jsonDir}/{filename}'
+
     with open(jsonFileName) as json_file:
         data = json.load(json_file)
 
@@ -377,18 +422,21 @@ def get_last_updated(jsonDir, filePartNum, procNames):
 
     return dfLastUpdated
 
-def get_last_updated_clinic_ci_notes(jsonDir, filePartNum, procNames):
+def get_last_updated_clinic_ci_notes(jsonDir, filePartNum, filename, procNames):
     """
         Extract the lastUpdated column from the raw json file since it's not present
         in the processed CSV files. This is only for the clinic .CI notes.
 
         jsonDir: directory where the raw json files are saved
         filePartNum: file part number to be processed
+        filename: file name of the json file
         procNames: list of procedure names of interest
     """
     # load the json file
-    jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_clinic_notes.json'
-    
+    filename = filename.replace('file-part-num', str(filePartNum)).replace('parquet.gzip', 'json')
+    # jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_clinic_notes.json'
+    jsonFileName = f'{jsonDir}/{filename}'
+
     with open(jsonFileName) as json_file:
         data = json.load(json_file)
 

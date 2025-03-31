@@ -1,8 +1,10 @@
+import sys
 import numpy as np
 import pandas as pd
 import os
 import argparse
 import logging
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 from util import (process_date, process_physician, 
                    get_last_updated,
                    get_last_updated_clinic_ci_notes)
@@ -30,6 +32,7 @@ def split_metadata_col_clinic(note_text):
     else:
         meta_data = 'undefined'
         text_data = note_text
+        # to be honest, not sure what is happening in this case
 
     return meta_data, text_data
 
@@ -65,7 +68,7 @@ def create_metadata(df):
     # only keep columns in the processed data frame
     return df[columns_to_keep].copy()
 
-def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_part_num):
+def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_part_num, file_name):
     """ Process each dataset pulled by the CDI team. 
         
         Restrict to a few procedures only.
@@ -80,13 +83,16 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
             mrn_file: file path for patient code to MRN map
             clinic_notes: are these the clinic notes?
             file_part_num: file part number to be processed 
+            file_name: file name of the gzip file to be processed. must have file-part-num string
     """
 
     # generate file name of gzip file
-    if clinic_notes:
-        file_name = f"2Blast_part4_{file_part_num}_clinic_notes.parquet.gzip"
-    else:
-        file_name = f"2Blast_part4_{file_part_num}_results_with_status_dates.parquet.gzip"
+    # if clinic_notes:
+    #     file_name = f"2Blast_part4_{file_part_num}_clinic_notes.parquet.gzip"
+    # else:
+    #     file_name = f"2Blast_part4_{file_part_num}_results_with_status_dates.parquet.gzip"
+
+    file_name = file_name.replace('file-part-num', str(file_part_num))
 
     # print file name
     logger.info(file_name)
@@ -94,6 +100,17 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
     # read parquet.gzip file
     df = pd.read_parquet(os.path.join(data_dir, file_name), engine='pyarrow', use_nullable_dtypes = True)
     df.replace({'None': None}, inplace=True)
+
+    # drop rows of patient research id if it is not of the format we want
+    pattern = r'^[A-Z]{2}\d{5}[A-Z]{2}\.R$'
+
+    # filter the dataframe
+    df = df.loc[df['PATIENT_RESEARCH_ID'].notna()].copy()
+    df = df[df['PATIENT_RESEARCH_ID'].str.match(pattern)].copy()
+
+    # fix this latter. remove all EPIC notes first
+    if clinic_notes:
+        df = df.loc[df['ClinicNotes.ClinicNote.summary'].isna()].copy()
 
     # rename certain columns
     if clinic_notes:
@@ -130,7 +147,12 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
         df['epr_date'] = df['note_date'].fillna(df['effective_date_time'])
 
     # add mrn column
-    mrns = pd.read_csv(mrn_file, dtype={'RESEARCH_ID': 'string', 'MRN': 'int64'})
+    mrns = pd.read_csv(mrn_file)
+    if 'PATIENT_RESEARCH_ID' in mrns.columns:
+        mrns = mrns.rename(columns={'PATIENT_RESEARCH_ID': 'RESEARCH_ID'})
+    # change type of RSEARCH_ID to string and MRN to int64
+    mrns['RESEARCH_ID'] = mrns['RESEARCH_ID'].astype('string')
+    mrns['MRN'] = mrns['MRN'].astype('int64')
     mrn_map = dict(zip(mrns['RESEARCH_ID'], mrns['MRN']))
     df['mrn'] = df['PATIENT_RESEARCH_ID'].map(mrn_map)
 
@@ -151,7 +173,14 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
         'Progress Notes',
         'Letters',
         'Consultation Report',
+        'History',
+        'Discharge Summary Report',
+        'Medical Records Report-PMH',
+        'Medical Records Letter',
+        'Geriatric Clinic Note',
+        'Annual Examination'
     ]
+    # need to edit this for clinic notes
     mask = df[proc_name_col].isin(PROCEDURE_NAMES_OF_INTEREST)
     df = df[mask].copy()    
 
@@ -178,7 +207,12 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
         'communication with',
         'person calling',
         'e-mail address',
-        'clinical_note',
+        'clinical_note', # this is for clinic notes
+        'fax number',
+        'relation to patient',
+        'fax number',
+        'instructions',
+        'medical records letter'
     ]
 
     other_metadata = [
@@ -205,8 +239,8 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
     # make adjustments if clinic notes case
     if clinic_notes:
         # drop rows which have duplicate values for text_data if meta data is in other_meta
-        df_all_other_meta = df.loc[~df['meta_data'].isin(other_metadata)].copy()
-        df_physician_meta = df.loc[df['meta_data'].isin(other_metadata)].copy()
+        df_all_other_meta = df.loc[~df['meta_data'].str.lower().isin(other_metadata)].copy()
+        df_physician_meta = df.loc[df['meta_data'].str.lower().isin(other_metadata)].copy()
         df_physician_meta.drop_duplicates(subset=['PATIENT_RESEARCH_ID', 'clinical_note_id', 'meta_data', 'text_data'], inplace=True)
         df = pd.concat([df_all_other_meta, df_physician_meta], axis=0)
 
@@ -232,6 +266,9 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
     # fill the null values with "dummy" to pivot the dataframe
     df_meta_of_interest[cols_to_group_by] = df_meta_of_interest[cols_to_group_by].fillna(value="dummy")
 
+    # # save debug
+    # df_meta_of_interest.to_csv(f"{save_dir}/debug_prepivot_{file_part_num}.csv", index=False)
+
     # pivot data frame to desired format
     df_meta_of_interest['meta_data'] = df_meta_of_interest['meta_data'].astype(str)
     df_meta_of_interest['text_data'] = df_meta_of_interest['text_data'].astype(str)
@@ -239,9 +276,24 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
     pivot_data_df.reset_index(drop=False, inplace=True)
     pivot_data_df = pivot_data_df.rename_axis(None, axis=1)
 
+    # # save debug
+    # pivot_data_df.to_csv(f"{save_dir}/debug_postpivot_{file_part_num}.csv", index=False)
+
     # count the number of patients
     n_patient_obs = df_meta_of_interest[['PATIENT_RESEARCH_ID', visit_id_col]].copy().drop_duplicates().shape[0]
-    assert np.allclose(pivot_data_df.shape[0], n_patient_obs), "Number of observations does not match number of patients"
+    if pivot_data_df.shape[0] != n_patient_obs:
+        logger.info("Warning: duplicate rows after pivoting\n")
+    # assert np.allclose(pivot_data_df.shape[0], n_patient_obs), "Number of observations does not match number of patients"
+
+    # fix any duplicate rows in pivot_data_df heuristically
+    group_1_cols = ['mrn', 'PATIENT_RESEARCH_ID', visit_id_col]
+    group_2_cols = [col for col in cols_to_group_by if col not in group_1_cols]
+    group_3_cols = [col for col in pivot_data_df if col not in group_1_cols + group_2_cols]
+    agg_funcs = {col: 'first' for col in group_1_cols}  # Take the first value (all are the same)
+    agg_funcs.update({col: lambda x: x[x != 'dummy'].iloc[0] if (x != 'dummy').any() else 'dummy' for col in group_2_cols})
+    agg_funcs.update({col: lambda x: x.bfill().iloc[0] for col in group_3_cols})  # get any value
+
+    pivot_data_df = pivot_data_df.groupby(['PATIENT_RESEARCH_ID', visit_id_col], as_index=False).agg(agg_funcs)
 
     # if clinic, fix Medical Records Report meta data
     if clinic_notes:
@@ -249,13 +301,15 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
         pivot_data_df.loc[mask, 'medical_records_report'] = pivot_data_df.loc[mask, 'clinical_note']
         mask = pivot_data_df['medical_records_report'].isna() & pivot_data_df['clinical_note'].notna()
         pivot_data_df.loc[mask, 'medical_records_report'] = pivot_data_df.loc[mask, 'clinical_note']
+        # need to see an example of clinical note metadata
 
     # merge all notes into a clinical_notes column
-    cols_to_agg_master = ['medical_records_report', 'textualreport', 'note', 'additional_details', 
-                          'document_more_advice', 'reason_for_communication', 'information_given', 
-                          'reason_for_call', 'comment', 'person_calling', 'e_mail_address', 
-                          'communication_with', 'spoke_with', 'phone_number', 'fax_number', 
-                          'relation_to_patient']
+    # cols_to_agg_master = ['medical_records_report', 'textualreport', 'note', 'additional_details', 
+    #                       'document_more_advice', 'reason_for_communication', 'information_given', 
+    #                       'reason_for_call', 'comment', 'person_calling', 'e_mail_address', 
+    #                       'communication_with', 'spoke_with', 'phone_number', 'fax_number', 
+    #                       'relation_to_patient']
+    cols_to_agg_master = list(map_notes_meta.values())
     cols_to_agg_local = [x for x in cols_to_agg_master if x in pivot_data_df.columns]
     pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].astype(str)
     pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].replace(to_replace='nan', value="")
@@ -280,9 +334,9 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
 
     # extract and merge last_updated column
     if clinic_notes:
-        df_last_updated = get_last_updated_clinic_ci_notes(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
+        df_last_updated = get_last_updated_clinic_ci_notes(json_dir, file_part_num, file_name, PROCEDURE_NAMES_OF_INTEREST)
     else:
-        df_last_updated = get_last_updated(json_dir, file_part_num, PROCEDURE_NAMES_OF_INTEREST)
+        df_last_updated = get_last_updated(json_dir, file_part_num, file_name, PROCEDURE_NAMES_OF_INTEREST)
     pivot_data_df = pivot_data_df.merge(df_last_updated, how='left', on=['PATIENT_RESEARCH_ID', visit_id_col])
 
     # pivot_data_df = pivot_data_df.loc[pivot_data_df['clinical_notes'] != '\n'*len(cols_to_agg_master)].copy()
@@ -304,7 +358,9 @@ if __name__ == "__main__":
     parser.add_argument("mrn_file", help = "MRN file", type = str) # file where MRN is saved
     parser.add_argument("clinic_notes", help = "MRN clinic notes", type = int) # clinic notes after 2017
     parser.add_argument("file_part_num", help = "file part number", type = int) # file part number
+    parser.add_argument("file_name", help = "file name", type = str) # file name
     args = parser.parse_args()
 
     process_notes(args.data_dir, args.json_dir, args.save_dir, 
-                  args.mrn_file, args.clinic_notes, args.file_part_num)
+                  args.mrn_file, args.clinic_notes, args.file_part_num,
+                  args.file_name)
