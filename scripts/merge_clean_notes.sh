@@ -2,14 +2,18 @@
 export PATH=$PATH:$(pwd)
 
 userName="t127556uhn"
-memory=16
+memory=64
 condaEnv="~/miniforge3/envs/LLMfinetune/bin/python"
 nGPU=0
-run_time="0-02:00:00"
-partition="all"
+run_time="0-04:00:00"
+partition="superhimem"
 
-parquet_gzip_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04"
-file_part_max_obs=598
-file_part_max_clin=598
+# parquet_gzip_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04"
+# file_part_max_obs=598
+# file_part_max_clin=598
+
+parquet_gzip_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08"
+file_part_max_obs=1775
+file_part_max_clin=1775
 
 pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/merge_clean_notes.py $parquet_gzip_dir $file_part_max_obs $file_part_max_clin"

@@ -80,7 +80,7 @@ def extract_date_from_note(x):
         full_pattern = "|".join(date_patterns)
 
         # Search for a date at the beginning of the text
-        match = re.search(full_pattern, x)
+        match = re.search(full_pattern, x.split('\n', 1)[0])
 
         return match.group() if match else None
     
@@ -457,6 +457,20 @@ def get_last_updated_clinic_ci_notes(jsonDir, filePartNum, filename, procNames):
     dfLastUpdated = pd.DataFrame({'PATIENT_RESEARCH_ID': patientList, 'clinical_note_id': clinicIDList, 'last_updated': lastUpdatedList})
 
     return dfLastUpdated
+
+def extract_header(text):
+    # extract the header from epic notes
+    lines = text.split("\n")  # Split text into lines
+    
+    header_lines = lines[:3]  # First two lines are always part of the header
+    
+    for line in lines[3:]:
+        if "\t" in line:  # If the line contains a tab, add it to the header
+            header_lines.append(line)
+        else:
+            break  # Stop at the first non-tabbed line after tabbed lines
+
+    return "\n".join(header_lines)  # Join extracted lines back into a string
 
 ###############################################################################
 # Multiprocessing

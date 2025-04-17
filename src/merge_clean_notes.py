@@ -39,8 +39,13 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
             merged_notes_list.append(df_temp)
         merged_notes[note_type] = pd.concat(merged_notes_list)
         merged_notes[note_type]['visit_date'] = pd.to_datetime(merged_notes[note_type]['visit_date'], utc=True)
-        merged_notes[note_type]['last_updated'] = pd.to_datetime(merged_notes[note_type]['last_updated'].apply(
-            lambda x: x.replace('T', ' ').replace('Z','')[:19]), utc=True, format='%Y-%m-%d %H:%M:%S')
+        merged_notes[note_type]['last_updated'] = pd.to_datetime(
+            merged_notes[note_type]['last_updated'].apply(
+                lambda x: x.replace('T', ' ').replace('Z', '')[:19] if isinstance(x, str) else pd.NaT
+            ),
+            utc=True,
+            format='%Y-%m-%d %H:%M:%S'
+        )
 
     # merge the observations and clinical dataframe
 
@@ -49,18 +54,26 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
                     'last_updated', 'dictated_by']
     merged_notes['clinical'].rename(columns={'code_text':"Observations.ProcName"}, inplace=True)
     merged_notes['observations'] = merged_notes['observations'][cols_to_keep].copy()
-    merged_notes['clinical'] = merged_notes['clinical'][cols_to_keep].copy()
+    merged_notes['clinical'] = merged_notes['clinical'][cols_to_keep + ['Cosigner', 'EPIC_FLAG']].copy()
     notes_df = pd.concat([merged_notes['observations'], merged_notes['clinical']], ignore_index=True)
 
     # # add physician name
     # mask_not_null = notes_df['dictated_by'].notnull()
     # notes_df.loc[mask_not_null, 'dictated_by'] = notes_df.loc[mask_not_null, 'dictated_by'].apply(lambda x: strip_title(x))
   
+    notes_df['EPIC_FLAG'] = notes_df['EPIC_FLAG'].apply(lambda x: 1 if x == 1 else 0)
+    epic_df = notes_df[notes_df['EPIC_FLAG'] == 1]
+    notes_df = notes_df[notes_df['EPIC_FLAG'] != 1]
+
     # extract date from note
     notes_df['date_in_note'] = notes_df['clinical_notes'].apply(lambda x: extract_date_from_note(x))
     notes_df['date_in_note'] = pd.to_datetime(notes_df['date_in_note'], utc=True, format='mixed', errors='coerce' ) 
     notes_df['processed_date'] = notes_df['date_in_note'].copy()
-    mask_date_out_of_range = (notes_df['date_in_note'].dt.year < 2004) | (notes_df['date_in_note'].dt.year > 2022)
+    # for EPR notes, if the year is beyond 2022, replace the date with visit date
+    mask_beyond_2022 = (notes_df['date_in_note'].dt.year > 2022)
+    notes_df.loc[mask_beyond_2022, 'processed_date'] = notes_df.loc[mask_beyond_2022, 'visit_date']
+    # mask_date_out_of_range = (notes_df['date_in_note'].dt.year < 2004) | (notes_df['date_in_note'].dt.year > 2022)
+    mask_date_out_of_range = (notes_df['date_in_note'].dt.year < 2004)
     notes_df.loc[mask_date_out_of_range, 'processed_date' ] = notes_df.loc[mask_date_out_of_range, 'visit_date']
     mask_null_dates = notes_df['date_in_note'].isnull()
     notes_df.loc[mask_null_dates, 'processed_date'] = notes_df.loc[mask_null_dates, 'visit_date']
@@ -71,7 +84,7 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
     # check that there is no-nan entry in the processed date
     assert sum(notes_df['processed_date'].isnull()) == 0 , "There is a nan date in the processed dates."
 
-    # delete duplicates
+    # delete duplicates among EPR notes
     notes_df['job_id'] = notes_df['clinical_notes'].apply(lambda x: extract_job_num(x))
     # find notes with duplicity more than 1
     df_with_job_id = notes_df.loc[notes_df['job_id'].notnull()].copy()
@@ -89,14 +102,32 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
     df_job_id_count = df_with_job_id.groupby(['mrn', 'Observations.ProcName', 'job_id']).size().reset_index(name='job_id_count')
     assert df_job_id_count['job_id_count'].max() == 1, "There is a duplicate record with the same procedure name."
     
-    logger.info(f'Number of duplicate records dropped: {to_clean_notes_df.shape[0] - filtered_records.shape[0]}')
+    logger.info(f'Number of duplicate EPR records dropped based on job id: {to_clean_notes_df.shape[0] - filtered_records.shape[0]}')
 
     # filtered notes
-    merged_notes_drop_duplicates = pd.concat([notes_df.loc[~notes_df['job_id'].isin(job_id_w_duplicates)], filtered_records]).reset_index()
+    merged_notes_drop_duplicates_temp = pd.concat([notes_df.loc[~notes_df['job_id'].isin(job_id_w_duplicates)], filtered_records]).reset_index()
 
-    cols_to_keep = ['mrn', 'Observations.ProcName', 'processed_physician_name', 'processed_date', 'clinical_notes', 'epr_date', 'dictated_by']
-    merged_notes_drop_duplicates[cols_to_keep].to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes.parquet.gzip', compression='gzip', index=False)
+    # drop duplicates based on 'clinical_notes' and 'processed_date'
+    merged_notes_drop_duplicates = merged_notes_drop_duplicates_temp.drop_duplicates(subset=['clinical_notes', 'processed_date'])
 
+    logger.info(f'Duplicates dropped among EPR notes based on identical note and date: {merged_notes_drop_duplicates_temp.shape[0] - merged_notes_drop_duplicates.shape[0]}')
+
+    # delete duplicates among EPIC notes
+    before_drop = len(epic_df)
+    epic_df_deduped = epic_df.drop_duplicates(subset='clinical_notes')
+    after_drop = len(epic_df_deduped)
+
+    logger.info(f'Duplicates dropped among EPIC notes: {before_drop - after_drop}')
+
+    epic_df_deduped.rename(columns={"visit_date": "processed_date"}, inplace=True)
+    epic_df_deduped['dictated_by'] = epic_df_deduped['processed_physician_name']
+
+    merged_notes_drop_duplicates = pd.concat([merged_notes_drop_duplicates, epic_df_deduped], ignore_index=True)
+
+    cols_to_keep = ['mrn', 'Observations.ProcName', 'processed_physician_name', 'processed_date', 'clinical_notes', 'epr_date', 'dictated_by', 'Cosigner', 'EPIC_FLAG']
+    existing_cols = [col for col in cols_to_keep if col in merged_notes_drop_duplicates.columns]
+
+    merged_notes_drop_duplicates[existing_cols].to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes.parquet.gzip', compression='gzip', index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

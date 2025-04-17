@@ -7,10 +7,32 @@ import logging
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 from util import (process_date, process_physician, 
                    get_last_updated,
-                   get_last_updated_clinic_ci_notes)
+                   get_last_updated_clinic_ci_notes,
+                   extract_header)
+sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/HealthReportRecords/constants")
+# load constants from file
+from constants import ambigousPhysicians, aliasDictionary
 
 logger = logging.getLogger(__name__)
 
+def remove_bmk_lines(text):
+    lines = text.splitlines()
+
+    # Remove first line if it's just 'bmk' (with optional whitespace)
+    if lines and lines[0].strip() == 'bmk':
+        lines = lines[1:]
+
+    # Remove last line if it's just 'bmk' (with optional whitespace)
+    if lines and lines[-1].strip() == 'bmk':
+        lines = lines[:-1]
+
+    # Strip leading/trailing spaces from non-blank lines
+    processed_lines = [
+        line.strip() if line.strip() else line
+        for line in lines
+    ]
+
+    return '\n'.join(processed_lines)
 def split_metadata_col_clinic(note_text):
     """ Split value into meta data and notes data for the clinic notes case.
     The expected format is of the form 10060/Report Type: Clinic Note.
@@ -108,10 +130,6 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
     df = df.loc[df['PATIENT_RESEARCH_ID'].notna()].copy()
     df = df[df['PATIENT_RESEARCH_ID'].str.match(pattern)].copy()
 
-    # fix this latter. remove all EPIC notes first
-    if clinic_notes:
-        df = df.loc[df['ClinicNotes.ClinicNote.summary'].isna()].copy()
-
     # rename certain columns
     if clinic_notes:
         new_column_names = {
@@ -142,7 +160,8 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
 
     # if clinic, make adjustments to the dataframe
     if clinic_notes:
-        df = df.loc[df['note_text'].apply(lambda x: len(x.strip())) > 1].copy()
+        # df = df.loc[df['note_text'].apply(lambda x: len(x.strip())) > 1].copy()
+        df = df.loc[df['note_text'].apply(lambda x: True if pd.isna(x) else len(x.strip()) > 1)].copy()
         # add EPR date
         df['epr_date'] = df['note_date'].fillna(df['effective_date_time'])
 
@@ -156,8 +175,13 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
     mrn_map = dict(zip(mrns['RESEARCH_ID'], mrns['MRN']))
     df['mrn'] = df['PATIENT_RESEARCH_ID'].map(mrn_map)
 
+    epic_notes_raw_df = None
+    if clinic_notes:
+        epic_notes_raw_df = df.loc[~df['ClinicNotes.ClinicNote.summary'].isna()].copy()
+        df = df.loc[df['ClinicNotes.ClinicNote.summary'].isna()].copy()
+
     # extract only procedures of interest (if condition if clinic)
-    PROCEDURE_NAMES_OF_INTEREST = [
+    PROCEDURE_NAMES_OF_INTEREST_EPR = [
         'Letter',
         'Consultation Note',
         'Communication Note',
@@ -180,8 +204,9 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
         'Geriatric Clinic Note',
         'Annual Examination'
     ]
+
     # need to edit this for clinic notes
-    mask = df[proc_name_col].isin(PROCEDURE_NAMES_OF_INTEREST)
+    mask = df[proc_name_col].isin(PROCEDURE_NAMES_OF_INTEREST_EPR)
     df = df[mask].copy()    
 
     # create metadata column
@@ -311,9 +336,14 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
     #                       'relation_to_patient']
     cols_to_agg_master = list(map_notes_meta.values())
     cols_to_agg_local = [x for x in cols_to_agg_master if x in pivot_data_df.columns]
+    if clinic_notes: cols_to_agg_local.remove('clinical_note')
     pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].astype(str)
     pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].replace(to_replace='nan', value="")
     pivot_data_df[cols_to_agg_local] = pivot_data_df[cols_to_agg_local].replace(to_replace='None', value="")
+    # if medical_records_report column has value Medical Records Report, empty cell
+    pivot_data_df.loc[pivot_data_df['medical_records_report'] == 'Medical Records Report', 'medical_records_report'] = ''
+    # if note column has value Note, empty cell
+    pivot_data_df.loc[pivot_data_df['note'] == 'Note', 'note'] = ''
     pivot_data_df['clinical_notes'] = pivot_data_df[cols_to_agg_local].agg('\n\n'.join, axis=1)
     pivot_data_df.drop(columns=cols_to_agg_local, inplace=True)
     if 'clinical_note' in pivot_data_df.columns: 
@@ -334,15 +364,82 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
 
     # extract and merge last_updated column
     if clinic_notes:
-        df_last_updated = get_last_updated_clinic_ci_notes(json_dir, file_part_num, file_name, PROCEDURE_NAMES_OF_INTEREST)
+        df_last_updated = get_last_updated_clinic_ci_notes(json_dir, file_part_num, file_name, PROCEDURE_NAMES_OF_INTEREST_EPR)
     else:
-        df_last_updated = get_last_updated(json_dir, file_part_num, file_name, PROCEDURE_NAMES_OF_INTEREST)
+        df_last_updated = get_last_updated(json_dir, file_part_num, file_name, PROCEDURE_NAMES_OF_INTEREST_EPR)
     pivot_data_df = pivot_data_df.merge(df_last_updated, how='left', on=['PATIENT_RESEARCH_ID', visit_id_col])
 
     # pivot_data_df = pivot_data_df.loc[pivot_data_df['clinical_notes'] != '\n'*len(cols_to_agg_master)].copy()
     pivot_data_df['new_line_only'] = pivot_data_df['clinical_notes'].apply(lambda x: all(char == '\n' for char in x))
     pivot_data_df = pivot_data_df.loc[pivot_data_df['new_line_only'] == False]
     pivot_data_df.drop('new_line_only', axis=1, inplace=True)
+
+    if epic_notes_raw_df is not None and not epic_notes_raw_df.empty:
+        # process epic notes if present
+        PROCEDURE_NAMES_OF_INTEREST_EPIC = [
+            'PROGRESS', 'OP NOTE', 'Teleconsult', 'CONSULT', 'H&P',
+            'Disch Summ', 'ED Prov Note', 'Post-Proc', 'MEDICAL STUD', 'CARE PLAN',
+            'Code Doc', 'PATIENT CARE', 'PROCEDURE', 'TELEPHONE EN', 'AN Preproc',
+            'Anes Procs', 'AN Postproc', 'Dictated Let', 'PATIENT INST', 'PRE-PROCEDUR',
+            'Radiation Th', 'MCC Note', 'A&P Note', 'Sedation Doc', 'Txp', 'CCRT Note',
+            'AN CAC', 'Comm Rev', 'Dial Round', 'Research Not', 'Dent Proc', 'Rad Comp',
+            'ACP', 'Pre-Proc', 'Event', 'ED Note', 'Nursing', 'BRIEF OP NOT',
+            'Pre-Sedation', 'Rx MedRec', 'ED Procedure', 'Interval H&P', 'H&P(View-Onl',
+            'Care Plan', 'Care and Ser', 'Dial Month', 'Rad Plan', 'SADR', 'Report',
+            'Group Note', 'SubjObj', 'Attestation', 'ICC Note', 'OR NURSING',
+            'Hospital Cou', 'ED Triage No', 'PFAx', 'BMT Planning'
+        ]
+        epic_notes_raw_df = epic_notes_raw_df.loc[epic_notes_raw_df['code_text'].isin(PROCEDURE_NAMES_OF_INTEREST_EPIC)]
+
+        pattern = r"Author Type:\s*([^\nF]+(?:F(?!iled:)[^\nF]*)*)"
+        epic_notes_raw_df['Extracted_Author_Type'] = epic_notes_raw_df['ClinicNotes.ClinicNote.summary'].str.extract(pattern)
+        epic_notes_raw_df['Extracted_Author_Type'] = epic_notes_raw_df['Extracted_Author_Type'].str.replace(r"^\s+|\s+$", "", regex=True)
+
+        # filter out according to extracted author type
+        author_types = ['Resident', 'Fellow', 'Physician', 'Medical Student', '', 'Research Fellow']
+        epic_notes_raw_df = epic_notes_raw_df.loc[epic_notes_raw_df['Extracted_Author_Type'].isin(author_types)].copy()
+
+        # extract header from EPIC note
+        epic_notes_raw_df['Header_Info'] = epic_notes_raw_df["ClinicNotes.ClinicNote.summary"].apply(lambda x: extract_header(x))
+
+        # extract date from EPIC notes
+        epic_notes_raw_df["Header_Date"] = epic_notes_raw_df["Header_Info"].str.extract(r"by .*? at (\d{1,2}/\d{1,2}/\d{4})")
+        epic_notes_raw_df["Filed_Date"] = epic_notes_raw_df["Header_Info"].str.extract(r"Filed: (\d{1,2}/\d{1,2}/\d{4})")
+        epic_notes_raw_df["Header_Date"] = pd.to_datetime(epic_notes_raw_df["Header_Date"], format="%d/%m/%Y")
+        epic_notes_raw_df["Filed_Date"] = pd.to_datetime(epic_notes_raw_df["Filed_Date"], format="%d/%m/%Y")
+        # fix Header_Date if year is less than 2020
+        mask = epic_notes_raw_df["Header_Date"].dt.year < 2020
+        epic_notes_raw_df.loc[mask, "Header_Date"] = epic_notes_raw_df.loc[mask, "Filed_Date"]
+
+        # extract physician name from header
+        epic_notes_raw_df["Header_Author"] = epic_notes_raw_df["Header_Info"].str.extract(r"by (.+?) at")
+        epic_notes_raw_df["Header_Author"] = epic_notes_raw_df["Header_Author"].str.replace(r",?\s*\b[A-Z]{1,5}\b$", "", regex=True)
+        epic_notes_raw_df["Header_Author"] = epic_notes_raw_df["Header_Author"].str.replace(r",?\s*MD\b.*$", "", regex=True)
+        epic_notes_raw_df["Cosigner"] = epic_notes_raw_df["Header_Info"].str.extract(r"Cosigner:\s*([\w\s,.\-()']+)\s+at")
+        epic_notes_raw_df["Cosigner"] = epic_notes_raw_df["Cosigner"].str.replace(r",?\s*\b[A-Z]{1,5}\b$", "", regex=True)
+        epic_notes_raw_df["Cosigner"] = epic_notes_raw_df["Cosigner"].str.replace(r",?\s*MD\b.*$", "", regex=True)
+
+        epic_notes_raw_df['EPIC_FLAG'] = 1
+
+        # map physician names
+        epic_notes_raw_df['Header_Author'] = epic_notes_raw_df['Header_Author'].replace(aliasDictionary)
+        epic_notes_raw_df['Cosigner'] = epic_notes_raw_df['Cosigner'].replace(aliasDictionary)
+
+        # clean the "bmk" at the beginning and end lines
+        epic_notes_raw_df['ClinicNotes.ClinicNote.summary'] = epic_notes_raw_df['ClinicNotes.ClinicNote.summary'].apply(remove_bmk_lines)
+
+        # only save columns that we need, add EPIC flag column
+        # we will not save the epr_date (system date) in this case
+        epic_notes_raw_df.rename(columns={"ClinicNotes.ClinicNote.summary": "clinical_notes",
+            "Header_Date": "visit_date", "Header_Author": "processed_physician_name"}, inplace=True)
+        
+        cols_to_keep = ['mrn', 'PATIENT_RESEARCH_ID', 'clinical_note_id', 'code_text','encounter_reference',
+                            'clinical_notes', 'visit_date', 'processed_physician_name', 'Cosigner', 'EPIC_FLAG']
+
+        pivot_data_df = pd.concat([pivot_data_df, epic_notes_raw_df[cols_to_keep]], ignore_index=True, sort=False)
+
+    # strip trailing line break/space from the column clinical_notes
+    pivot_data_df['clinical_notes'] = pivot_data_df['clinical_notes'].apply(lambda x: x.rstrip())
 
     # save extracted data
     if clinic_notes:
