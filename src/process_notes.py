@@ -4,6 +4,7 @@ import pandas as pd
 import os
 import argparse
 import logging
+import re
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 from util import (process_date, process_physician, 
                    get_last_updated,
@@ -16,6 +17,7 @@ from constants import ambigousPhysicians, aliasDictionary
 logger = logging.getLogger(__name__)
 
 def remove_bmk_lines(text):
+    text = text.rstrip()
     lines = text.splitlines()
 
     # Remove first line if it's just 'bmk' (with optional whitespace)
@@ -427,6 +429,10 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
 
         # clean the "bmk" at the beginning and end lines
         epic_notes_raw_df['ClinicNotes.ClinicNote.summary'] = epic_notes_raw_df['ClinicNotes.ClinicNote.summary'].apply(remove_bmk_lines)
+
+        # drop duplicates based on extra whie spaces
+        epic_notes_raw_df['remove_white_space_notes'] = epic_notes_raw_df['ClinicNotes.ClinicNote.summary'].apply(lambda x: re.sub(r'\s+', '', x))
+        epic_notes_raw_df = epic_notes_raw_df.drop_duplicates(subset=['remove_white_space_notes'])
 
         # only save columns that we need, add EPIC flag column
         # we will not save the epr_date (system date) in this case

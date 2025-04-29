@@ -107,6 +107,9 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
     # filtered notes
     merged_notes_drop_duplicates_temp = pd.concat([notes_df.loc[~notes_df['job_id'].isin(job_id_w_duplicates)], filtered_records]).reset_index()
 
+    # remove leading white space from notes
+    merged_notes_drop_duplicates_temp['clinical_notes'] = merged_notes_drop_duplicates_temp['clinical_notes'].apply(lambda x: x.lstrip())
+
     # drop duplicates based on 'clinical_notes' and 'processed_date'
     merged_notes_drop_duplicates = merged_notes_drop_duplicates_temp.drop_duplicates(subset=['clinical_notes', 'processed_date'])
 
