@@ -472,6 +472,129 @@ def extract_header(text):
 
     return "\n".join(header_lines)  # Join extracted lines back into a string
 
+def clean_clinical_note(text, min_garbage_length=55):
+    """
+    Noke Yuan:
+    Cleans a clinical note text by applying the following steps:
+ 
+    Step 1: Remove hexadecimal prefixes followed by <image ...> tags
+        - Regex: (?:([a-fA-F0-9]{8,})\s*)?(<image[^>]*>)
+            - (?:...)      : Non-capturing group
+            - [a-fA-F0-9]{8,} : Matches a hexadecimal string of 8 or more characters
+            - \s*          : Matches optional whitespace
+            - <image[^>]*> : Matches an <image ...> HTML-like tag
+        - Matches patterns like:
+            "deadbeef <image src='xyz'/>"
+            "<image src='abc' />"
+        - The whole matched string is removed from the text and added to the removed list.
+ 
+    Step 2: Remove hyperlinks (in two stages)
+        2a. First remove raw hyperlinks (URLs starting with http or https)
+            - Regex:
+                http[s]?://(?:[a-zA-Z0-9$-_@.&+!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+
+            - Matches direct web links like:
+                'https://www.youtube.com/watch?v=abc123'
+                'http://example.com/page'
+        2b. Then remove leftover HYPERLINK or oHYPERLINK tags but KEEP mailto links
+            - Regex:
+                \b(?:o?HYPERLINK)\s+"([^"]+)"
+                - \b                : Word boundary
+                - (?:o?HYPERLINK)   : Matches "HYPERLINK" or "oHYPERLINK"
+                - \s+               : One or more spaces
+                - "[^"]+"           : A quoted string (the hyperlink target)
+            - Behavior:
+                - Removes only the `HYPERLINK "..."` tag, not the full line.
+                - Skips removal if the link contains "mailto".
+ 
+    Step 3: Remove long alphanumeric tokens (mixed letters and digits)
+        - Regex: \b\w{min_garbage_length,}\b
+            - \b              : Word boundary
+            - \w{N,}          : Words with at least N characters (letters, digits, or underscores)
+            - Post-filter: Only remove if the word contains both digits and letters
+        - Example removed:
+            'X1209VABNM30'
+            '123ABC456XYZ'
+        - Intention: Remove auto-generated or corrupted tokens from OCR or data noise
+ 
+    Parameters:
+    ----------
+    text : str
+        The raw clinical note text.
+ 
+    min_garbage_length : int, default=20
+        Minimum length of alphanumeric tokens to be considered garbage and removed if they mix letters and digits.
+ 
+    Returns:
+    -------
+    cleaned_text : str
+        The cleaned clinical note with unwanted elements removed.
+ 
+    removed_text : str
+        A newline-separated string of all the removed components.
+    """
+ 
+    if pd.isna(text):
+        return text, ""
+ 
+    removed_items = []
+ 
+    # === Step 1: Remove hex + <image ...> tags ===
+    image_link_pattern = r'(?:([a-fA-F0-9]{8,})\s*)?(<image[^>]*>)'
+    image_matches = re.findall(image_link_pattern, text)
+ 
+    # print("Matched <image> tags with optional links:")
+    for hex_part, image_tag in image_matches:
+        full_link = (hex_part or '') + image_tag
+        # print(f"  - Tag: {repr(image_tag)} | Link: {repr(full_link)}")
+        text = text.replace(full_link, '')
+        removed_items.append(full_link)
+ 
+    # === Step 2: Remove raw hyperlinks (URLs) first, then clean leftover HYPERLINK tags ===
+    # Step 2a: Detect and remove raw URLs (http/https)
+    url_pattern = r"http[s]?://(?:[a-zA-Z0-9$-_@.&+!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
+    found_urls = re.findall(url_pattern, text)
+ 
+    # print("\n Raw URLs removed:")
+    for url in found_urls:
+        # print(f"  - {repr(url)}")
+        text = text.replace(url, '')               # Remove the URL itself
+        removed_items.append(url)
+ 
+    # Step 2b: Remove leftover HYPERLINK or oHYPERLINK tags (if any remain)
+    hyperlink_tag_pattern = r'\b(?:o?HYPERLINK)\s+"([^"]+)"'
+    def remove_hyperlink_tag_only(match):
+        link = match.group(1)
+        full_match = match.group(0)
+        if "mailto" in link.lower():
+            # print(f"  - Skipped HYPERLINK tag (mailto): {repr(full_match)}")
+            return full_match  # Keep if it's a mailto
+        else:
+            # print(f"  - Removed leftover HYPERLINK tag: {repr(full_match)}")
+            removed_items.append(full_match)
+            return ''  # Remove the HYPERLINK/oHYPERLINK tag only
+ 
+    # Apply the cleanup
+    text = re.sub(hyperlink_tag_pattern, remove_hyperlink_tag_only, text)
+    
+    # === Step 3: Remove long alphanumeric garbage tokens ===
+    token_pattern = r'\b\w{%d,}\b' % min_garbage_length
+    token_candidates = re.findall(token_pattern, text)
+ 
+    garbage_tokens = [
+        token for token in token_candidates
+        if any(c.isdigit() for c in token) and any(c.isalpha() for c in token)
+    ]
+ 
+    # print("\n Garbage tokens removed:")
+    for token in garbage_tokens:
+        # print(f"  - {repr(token)}")
+        text = text.replace(token, '')
+        removed_items.append(token)
+ 
+    # === Done ===
+    removed_text = '\n'.join(removed_items)
+    return text, removed_text
+
 ###############################################################################
 # Multiprocessing
 ###############################################################################

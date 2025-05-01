@@ -3,6 +3,7 @@ import argparse
 import os
 from util import (extract_date_from_note, 
                   extract_job_num,
+                  clean_clinical_note,
                   strip_title)
 import logging
 
@@ -124,6 +125,9 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
 
     epic_df_deduped.rename(columns={"visit_date": "processed_date"}, inplace=True)
     epic_df_deduped['dictated_by'] = epic_df_deduped['processed_physician_name']
+    epic_df_deduped[['clinical_notes', 'removed_text']] = epic_df_deduped['clinical_notes'].apply(lambda x: pd.Series(clean_clinical_note(x)))
+    # drop removed_text column
+    epic_df_deduped.drop(columns=['removed_text'], inplace=True)
 
     merged_notes_drop_duplicates = pd.concat([merged_notes_drop_duplicates, epic_df_deduped], ignore_index=True)
 
