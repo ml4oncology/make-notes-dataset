@@ -10,9 +10,12 @@ from util import (process_date, process_physician,
                    get_last_updated,
                    get_last_updated_clinic_ci_notes,
                    extract_header)
-sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/HealthReportRecords/constants")
+# sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/HealthReportRecords/constants")
+sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/info")
+
 # load constants from file
-from constants import ambigousPhysicians, aliasDictionary
+# from constants import ambigousPhysicians, aliasDictionary
+from phys_names import ambigousPhysicians, aliasDictionary
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +209,12 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
         'Geriatric Clinic Note',
         'Annual Examination'
     ]
+
+    root_dir = '/cluster/projects/gliugroup/2BLAST'
+    proc_names_category = pd.read_csv(f'{root_dir}/data/info/proc_names.csv')
+    RAD_PROCEDURE_NAMES_OF_INTEREST = proc_names_category.query('category == "Radiology"')['value'].tolist()
+
+    PROCEDURE_NAMES_OF_INTEREST_EPR.extend(RAD_PROCEDURE_NAMES_OF_INTEREST)
 
     # need to edit this for clinic notes
     mask = df[proc_name_col].isin(PROCEDURE_NAMES_OF_INTEREST_EPR)

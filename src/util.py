@@ -3,9 +3,12 @@ import json
 import re
 import sys
 import multiprocessing as mp
-sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/HealthReportRecords/constants")
-# load constants from file
-from constants import ambigousPhysicians, aliasDictionary
+# sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/HealthReportRecords/constants")
+# # load constants from file
+# from constants import ambigousPhysicians, aliasDictionary
+
+sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/info")
+from phys_names import ambigousPhysicians, aliasDictionary
 
 def process_date(df):
     """
@@ -23,7 +26,10 @@ def process_date(df):
 
     # convert date_dictated from string to datetime column by extracting date only and excluding day of week
     # the date dictated string has this format: Wed, 23 Jan 2019
+    # find non-null in date_dictated column
+    df['date_dictated'].replace('None', None, inplace=True)
     maskDateDictated = df['date_dictated'].notnull()
+    
     df.loc[maskDateDictated, 'date_dictated'] = pd.to_datetime(df.loc[maskDateDictated, 'date_dictated'].map(lambda x: x.split(',')[1][1:]), format='%d %b %Y')
     df['date_dictated'] = pd.to_datetime(df['date_dictated'], utc=True)
 
