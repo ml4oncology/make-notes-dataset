@@ -210,11 +210,11 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes, file_par
         'Annual Examination'
     ]
 
-    root_dir = '/cluster/projects/gliugroup/2BLAST'
-    proc_names_category = pd.read_csv(f'{root_dir}/data/info/proc_names.csv')
-    RAD_PROCEDURE_NAMES_OF_INTEREST = proc_names_category.query('category == "Radiology"')['value'].tolist()
+    # root_dir = '/cluster/projects/gliugroup/2BLAST'
+    # proc_names_category = pd.read_csv(f'{root_dir}/data/info/proc_names.csv')
+    # RAD_PROCEDURE_NAMES_OF_INTEREST = proc_names_category.query('category == "Radiology"')['value'].tolist()
 
-    PROCEDURE_NAMES_OF_INTEREST_EPR.extend(RAD_PROCEDURE_NAMES_OF_INTEREST)
+    # PROCEDURE_NAMES_OF_INTEREST_EPR.extend(RAD_PROCEDURE_NAMES_OF_INTEREST)
 
     # need to edit this for clinic notes
     mask = df[proc_name_col].isin(PROCEDURE_NAMES_OF_INTEREST_EPR)

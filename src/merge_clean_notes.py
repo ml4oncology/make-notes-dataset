@@ -8,6 +8,9 @@ from util import (extract_date_from_note,
 import logging
 
 logger = logging.getLogger(__name__)
+import sys
+sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/info")
+from phys_names import aliasDictionary
 
 def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
                       file_part_max_clinical):
@@ -136,6 +139,36 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
 
     merged_notes_drop_duplicates[existing_cols].to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes.parquet.gzip', compression='gzip', index=False)
 
+    # find the list of medical oncologists from the aliasDictionary
+    unique_aliases = []
+    for _, values in aliasDictionary.items():
+        unique_aliases.append(values)
+    unique_aliases = list(set(unique_aliases))
+
+    # apply the alias mapping to processed_physician_name
+    merged_notes_drop_duplicates['processed_physician_name'] = merged_notes_drop_duplicates['processed_physician_name'].replace(aliasDictionary)
+    # if Cosigner is a column, apply the alias mapping to Cosigner as well
+    if 'Cosigner' in merged_notes_drop_duplicates.columns:
+        merged_notes_drop_duplicates['Cosigner'] = merged_notes_drop_duplicates['Cosigner'].replace(aliasDictionary)
+
+    # restrict merged_notes_drop_duplicates[existing_cols] such that processed_physician_name or Cosigner is in unique_aliases
+    # if Cosigner exists, keep rows where either processed_physician_name or Cosigner is in unique_aliases
+    if 'Cosigner' in merged_notes_drop_duplicates.columns:
+        mask = (
+            merged_notes_drop_duplicates['processed_physician_name'].isin(unique_aliases) |
+            merged_notes_drop_duplicates['Cosigner'].isin(unique_aliases)
+        )
+    else:
+        mask = merged_notes_drop_duplicates['processed_physician_name'].isin(unique_aliases)
+
+    medonc_notes_df = merged_notes_drop_duplicates.loc[mask, existing_cols].copy()    
+    medonc_notes_df.to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip', compression='gzip', index=False)
+
+    # if EPIC_FLAG is in the columns of medonc_notes_df, only keep the records with EPIC_FLAG == 1 and save
+    if 'EPIC_FLAG' in medonc_notes_df.columns:
+        medonc_notes_df_epic = medonc_notes_df[medonc_notes_df['EPIC_FLAG'] == 1].copy()
+        medonc_notes_df_epic.to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip', compression='gzip', index=False)
+        
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("parquet_gzip_dir", help = "directory of the parquet gzip files", type = str) # directory of the parquet gzip files
