@@ -31,14 +31,16 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
         if note_type == 'observations':
             fname = 'processed_observation_notes'
             file_part_max = file_part_max_observations
+            dir_name = 'obs_notes_parts'
         else:
             fname = 'processed_clinic_notes'
             file_part_max = file_part_max_clinical
+            dir_name = 'clinic_notes_parts'
         
         merged_notes_list = []
         for ctr in range(file_part_max + 1):
             # load dataframe
-            df_temp = pd.read_parquet(os.path.join(parquet_gzip_dir, f'{fname}_{ctr}.parquet.gzip'), 
+            df_temp = pd.read_parquet(os.path.join(parquet_gzip_dir, dir_name, f'{fname}_{ctr}.parquet.gzip'), 
                                       engine='pyarrow', use_nullable_dtypes = True)
             merged_notes_list.append(df_temp)
         merged_notes[note_type] = pd.concat(merged_notes_list)
@@ -58,16 +60,21 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
                     'last_updated', 'dictated_by']
     merged_notes['clinical'].rename(columns={'code_text':"Observations.ProcName"}, inplace=True)
     merged_notes['observations'] = merged_notes['observations'][cols_to_keep].copy()
-    merged_notes['clinical'] = merged_notes['clinical'][cols_to_keep + ['Cosigner', 'EPIC_FLAG']].copy()
+    clinical_cols = cols_to_keep.copy()
+    for optional in ['Cosigner', 'EPIC_FLAG']:
+        if optional in merged_notes['clinical'].columns:
+            clinical_cols.append(optional)
+    merged_notes['clinical'] = merged_notes['clinical'][clinical_cols].copy()
     notes_df = pd.concat([merged_notes['observations'], merged_notes['clinical']], ignore_index=True)
 
     # # add physician name
     # mask_not_null = notes_df['dictated_by'].notnull()
     # notes_df.loc[mask_not_null, 'dictated_by'] = notes_df.loc[mask_not_null, 'dictated_by'].apply(lambda x: strip_title(x))
-  
-    notes_df['EPIC_FLAG'] = notes_df['EPIC_FLAG'].apply(lambda x: 1 if x == 1 else 0)
-    epic_df = notes_df[notes_df['EPIC_FLAG'] == 1]
-    notes_df = notes_df[notes_df['EPIC_FLAG'] != 1]
+    epic_df = None
+    if 'EPIC_FLAG' in notes_df.columns:
+        notes_df['EPIC_FLAG'] = notes_df['EPIC_FLAG'].apply(lambda x: 1 if x == 1 else 0)
+        epic_df = notes_df[notes_df['EPIC_FLAG'] == 1]
+        notes_df = notes_df[notes_df['EPIC_FLAG'] != 1]
 
     # extract date from note
     notes_df['date_in_note'] = notes_df['clinical_notes'].apply(lambda x: extract_date_from_note(x))
@@ -119,20 +126,21 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
 
     logger.info(f'Duplicates dropped among EPR notes based on identical note and date: {merged_notes_drop_duplicates_temp.shape[0] - merged_notes_drop_duplicates.shape[0]}')
 
-    # delete duplicates among EPIC notes
-    before_drop = len(epic_df)
-    epic_df_deduped = epic_df.drop_duplicates(subset='clinical_notes')
-    after_drop = len(epic_df_deduped)
+    if epic_df is not None:
+        # delete duplicates among EPIC notes
+        before_drop = len(epic_df)
+        epic_df_deduped = epic_df.drop_duplicates(subset='clinical_notes')
+        after_drop = len(epic_df_deduped)
 
-    logger.info(f'Duplicates dropped among EPIC notes: {before_drop - after_drop}')
+        logger.info(f'Duplicates dropped among EPIC notes: {before_drop - after_drop}')
 
-    epic_df_deduped.rename(columns={"visit_date": "processed_date"}, inplace=True)
-    epic_df_deduped['dictated_by'] = epic_df_deduped['processed_physician_name']
-    epic_df_deduped[['clinical_notes', 'removed_text']] = epic_df_deduped['clinical_notes'].apply(lambda x: pd.Series(clean_clinical_note(x)))
-    # drop removed_text column
-    epic_df_deduped.drop(columns=['removed_text'], inplace=True)
+        epic_df_deduped.rename(columns={"visit_date": "processed_date"}, inplace=True)
+        epic_df_deduped['dictated_by'] = epic_df_deduped['processed_physician_name']
+        epic_df_deduped[['clinical_notes', 'removed_text']] = epic_df_deduped['clinical_notes'].apply(lambda x: pd.Series(clean_clinical_note(x)))
+        # drop removed_text column
+        epic_df_deduped.drop(columns=['removed_text'], inplace=True)
 
-    merged_notes_drop_duplicates = pd.concat([merged_notes_drop_duplicates, epic_df_deduped], ignore_index=True)
+        merged_notes_drop_duplicates = pd.concat([merged_notes_drop_duplicates, epic_df_deduped], ignore_index=True)
 
     cols_to_keep = ['mrn', 'Observations.ProcName', 'processed_physician_name', 'processed_date', 'clinical_notes', 'epr_date', 'dictated_by', 'Cosigner', 'EPIC_FLAG']
     existing_cols = [col for col in cols_to_keep if col in merged_notes_drop_duplicates.columns]
