@@ -161,13 +161,21 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
 
     # restrict merged_notes_drop_duplicates[existing_cols] such that processed_physician_name or Cosigner is in unique_aliases
     # if Cosigner exists, keep rows where either processed_physician_name or Cosigner is in unique_aliases
+
+    anchored_proc_names = ['Clinic Note', 'Letter', 'History & Physical Note', 
+                    'Consultation Note', 'Clinic Note (Non-dictated)']
     if 'Cosigner' in merged_notes_drop_duplicates.columns:
         mask = (
             merged_notes_drop_duplicates['processed_physician_name'].isin(unique_aliases) |
-            merged_notes_drop_duplicates['Cosigner'].isin(unique_aliases)
+            merged_notes_drop_duplicates['Cosigner'].isin(unique_aliases) & (
+            (merged_notes_drop_duplicates['EPIC_FLAG'] == 1) |
+            (merged_notes_drop_duplicates['Observations.ProcName'].isin(anchored_proc_names))
+            )
         )
     else:
-        mask = merged_notes_drop_duplicates['processed_physician_name'].isin(unique_aliases)
+        mask = ( merged_notes_drop_duplicates['processed_physician_name'].isin(unique_aliases) & 
+                merged_notes_drop_duplicates['Observations.ProcName'].isin(anchored_proc_names)
+        )
 
     medonc_notes_df = merged_notes_drop_duplicates.loc[mask, existing_cols].copy()    
     medonc_notes_df.to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip', compression='gzip', index=False)

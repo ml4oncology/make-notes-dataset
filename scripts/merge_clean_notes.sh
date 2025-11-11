@@ -14,8 +14,8 @@ file_part_max_clin=598
 
 pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/merge_clean_notes.py $parquet_gzip_dir $file_part_max_obs $file_part_max_clin"
 
-parquet_gzip_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08"
-file_part_max_obs=1775
-file_part_max_clin=1775
+# parquet_gzip_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08"
+# file_part_max_obs=1775
+# file_part_max_clin=1775
 
-pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/merge_clean_notes.py $parquet_gzip_dir $file_part_max_obs $file_part_max_clin"
+# pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/merge_clean_notes.py $parquet_gzip_dir $file_part_max_obs $file_part_max_clin"

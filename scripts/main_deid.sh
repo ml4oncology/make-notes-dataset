@@ -10,7 +10,7 @@ df_name=merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip
 # data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08
 # df_name=merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip
 
-chunk_size=200
+chunk_size=500
 
 # Step 1: Split the dataframe
 echo "Splitting dataframe..."

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -p gpu
-#SBATCH --gpus 1
+#SBATCH --gres=gpu:1
 #SBATCH --mem 8GB
 #SBATCH -t 0-08:00:00
 #SBATCH -A grantgroup_gpu

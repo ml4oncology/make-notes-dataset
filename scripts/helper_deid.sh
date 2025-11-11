@@ -14,7 +14,7 @@ pretrained_model_path=/cluster/projects/gliugroup/2BLAST/LLMs/deid_roberta_i2b2
 config_file=/cluster/home/t127556uhn/robust_deid-0.3.1/steps/forward_pass/run/i2b2/predict_i2b2.json
 eval_batch_size=16
 
-apptainer exec --bind $data_dir,$ner_dir,$pred_dir,$save_dir $container_path bash -c "
+apptainer exec --nv --bind $data_dir,$ner_dir,$pred_dir,$save_dir $container_path bash -c "
 export MKL_THREADING_LAYER=GNU && \
 export MKL_SERVICE_FORCE_INTEL=1 && \
 export PYTHONPATH='' && \
