@@ -8,7 +8,8 @@ nGPU=0
 run_time="0-04:00:00"
 partition="all"
 
-# deid_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04/splits"
-deid_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08/splits"
+deid_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04/splits"
+pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/merge_deid_dataframes.py $deid_dir"
 
+deid_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08/splits"
 pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/merge_deid_dataframes.py $deid_dir"

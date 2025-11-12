@@ -3,12 +3,12 @@ set -e
 
 # Input variables
 # old pull
-data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04
-df_name=merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip
+# data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04
+# df_name=merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip
 
 # new pull
-# data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08
-# df_name=merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip
+data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08
+df_name=merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip
 
 chunk_size=500
 
