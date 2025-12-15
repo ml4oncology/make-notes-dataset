@@ -2,13 +2,28 @@
 set -e
 
 # Input variables
-# old pull
-# data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04
-# df_name=merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip
 
-# new pull
-data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08
-df_name=merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 <data_pull_date>"
+    exit 1
+fi
+
+data_pull_date="$1"
+
+if [[ $data_pull_date == "2024-06-04" ]]; then
+  # old pull
+  data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04
+  df_name=merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip
+
+elif [[ $data_pull_date == "2025-01-08" ]]; then
+  # new pull
+  data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08
+  df_name=merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip
+
+else
+    echo "Invalid data_pull_date: $data_pull_date"
+    exit 1
+fi
 
 chunk_size=500
 

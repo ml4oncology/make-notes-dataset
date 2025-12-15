@@ -184,6 +184,15 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
     if 'EPIC_FLAG' in medonc_notes_df.columns:
         medonc_notes_df_epic = medonc_notes_df[medonc_notes_df['EPIC_FLAG'] == 1].copy()
         medonc_notes_df_epic.to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip', compression='gzip', index=False)
+
+        # further restrict EPIC patients to those that did not have EPR records
+        medonc_notes_df_epr = medonc_notes_df[medonc_notes_df['EPIC_FLAG'] == 0].copy()
+        mrns_EPR = set(medonc_notes_df_epr['mrn'].unique())
+        mrns_EPIC = set(medonc_notes_df_epic['mrn'].unique())
+        mrns_only_EPIC = mrns_EPIC - mrns_EPR
+
+        medonc_notes_df_epic_records_only = medonc_notes_df_epic[medonc_notes_df_epic['mrn'].isin(mrns_only_EPIC)].copy()
+        medonc_notes_df_epic_records_only.to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip', compression='gzip', index=False)
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
