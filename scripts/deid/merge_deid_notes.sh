@@ -10,7 +10,7 @@ data_pull_date="$1"
 
 userName="t127556uhn"
 memory=16
-condaEnv="~/miniforge3/envs/LLMfinetune/bin/python"
+condaEnv="~/miniforge3/envs/OncoTRAIL/bin/python"
 nGPU=0
 run_time="0-04:00:00"
 partition="all"

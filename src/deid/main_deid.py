@@ -8,9 +8,9 @@ from datetime import datetime
 import numpy as np
 
 def read_df(data_dir, df_name):
-    if df_name.endswith('.csv'):
+    if df_name.endswith(".csv"):
         df = pd.read_csv(f"{data_dir}/{df_name}", index_col = 0)
-    elif df_name.endswith(('.parquet','.parquet.gzip')):
+    elif df_name.endswith((".parquet",".parquet.gzip")):
         df = pd.read_parquet(f"{data_dir}/{df_name}", engine='pyarrow', 
                              use_nullable_dtypes=True)
     else:
@@ -35,8 +35,10 @@ def main(cfg: dict):
         df['observation_id'] = range(df.shape[0])
         df['observation_id'] = df['observation_id'].astype(str)
 
-    # adjust column names here
-    if 'PATIENT_RESEARCH_ID' in df.columns:
+    # resolve patient_id_col: allow override via cfg, otherwise fall back to detection
+    if 'patient_id_col' in cfg and cfg['patient_id_col']:
+        patient_id_col = cfg['patient_id_col']
+    elif 'PATIENT_RESEARCH_ID' in df.columns:
         patient_id_col = 'PATIENT_RESEARCH_ID'
     elif 'mrn' in df.columns:
         patient_id_col = 'mrn'
@@ -44,12 +46,15 @@ def main(cfg: dict):
         raise Exception("patient id column not found")
     df[patient_id_col] = df[patient_id_col].astype(str)
 
-    if 'clinical_notes' in df.columns:
+    # resolve note_col: allow override via cfg, otherwise fall back to detection
+    if 'note_col' in cfg and cfg['note_col']:
+        note_col = cfg['note_col']
+    elif 'clinical_notes' in df.columns:
         note_col = 'clinical_notes'
     elif 'note' in df.columns:
         note_col = 'note'
     else:
-        raise Exception("noted column not found")
+        raise Exception("note column not found")
     
     patient_id_list = list(df[patient_id_col].values)
     visit_id_list = list(df['observation_id'].values)
@@ -102,9 +107,9 @@ def main(cfg: dict):
     df.rename(columns={f"deid_note": note_col}, inplace=True)
     
     # save updated data frame
-    if df_name.endswith('.csv'):
+    if df_name.endswith(".csv"):
         df.to_csv(f"{save_dir}/deid_{df_name}")
-    elif df_name.endswith(('.parquet','.parquet.gzip')):
+    elif df_name.endswith((".parquet",".parquet.gzip")):
         df.to_parquet(f"{save_dir}/deid_{df_name}", compression='gzip', index=False)
 
     # delete the intermediate jsonl files
@@ -121,5 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("pretrained_model_path", help = "pre-trained model directory", type = str) # pretrained model directory
     parser.add_argument("config_file", help = "config file for de-id", type = str) # configuration file for de-identification
     parser.add_argument("eval_batch_size", help = "prediction batch size", type = int) # prediction for batch size
+    parser.add_argument("--patient_id_col", help = "override patient id column name", type = str, default = None)
+    parser.add_argument("--note_col", help = "override note column name", type = str, default = None)
     cfg = vars(parser.parse_args())
     main(cfg)
