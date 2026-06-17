@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def extract_zip(zip_directory, save_directory, batch_index=None, total_batches=None):
     """Extract all zip files in zip_directory to save_directory. Converts
-    csv files of interest to parquet.gzip.
+    csv files of interest to parquet.gzip. Otherwise, unzip zipped json files.
     Args:
         zip_directory: path to directory of zip files
         save_directory: path to directory to save parquet.gzip files

@@ -26,6 +26,19 @@ This is a brief description of the notebooks in this repository.
 
 * Filtering patients to study period: Drop all records outside the study period. Drop patients whose first visit is outside the study period
 
+## Extraction
+
+Before processing the notes, raw CSV and JSON files must be extracted from their zipped archives. This is done separately for observation and clinic note archives. Any unzipped CSV files are converted to Parquet format during extraction.
+
+The available data pull dates are 2024-06-04 and 2025-01-08. Run `scripts/extract/extract_zip.sh` with the appropriate pull date:
+
+```bash
+./scripts/extract/extract_zip.sh 2024-06-04
+# or
+./scripts/extract/extract_zip.sh 2025-01-08
+```
+
+
 ## De-identification
 
 The de-identification pipeline in this repository uses the [Robust DeID model](https://github.com/obi-ml-public/ehr_deidentification) from the [obi-ml-public/ehr_deidentification](https://github.com/obi-ml-public/ehr_deidentification) package. The model has been modified and packaged as an Apptainer image for use on the H4H Cluster at UHN.
