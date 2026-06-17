@@ -23,13 +23,13 @@ def merge_deid_dataframes(deid_dir):
     output_path = os.path.join(deid_dir, f"{base_name}.parquet.gzip")
 
     # Load and merge all parts
-    print(f"🧩 Found {len(part_files)} parts for {base_name}")
+    print(f"Found {len(part_files)} parts for {base_name}")
     dfs = [pd.read_parquet(f) for f in part_files]
     merged_df = pd.concat(dfs, ignore_index=True)
 
     # Save merged dataframe
     merged_df.to_parquet(output_path, compression="gzip")
-    print(f"✅ Merged dataframe saved to {output_path} ({len(merged_df):,} rows)")
+    print(f"Merged dataframe saved to {output_path} ({len(merged_df):,} rows)")
 
 def main():
     parser = argparse.ArgumentParser(

@@ -11,8 +11,6 @@ from robust_deid.sequence_tagging.arguments import (
 from robust_deid.deid import TextDeid
 import os
 
-#os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
-
 def deid_forward_pass(notes_dir, notes_file_name, ner_dir, pred_dir, pretrained_dir, config_file, eval_batch_size):
     """
         De-identify clinical notes.
@@ -33,9 +31,6 @@ def deid_forward_pass(notes_dir, notes_file_name, ner_dir, pred_dir, pretrained_
     ner_dataset_file = f'{ner_dir}/sentencized_tokenized_{notes_file_name}.jsonl'
     
     # Initialize the location where we will store the model predictions (predictions_file)
-    # Verify this file location - Ensure it's the same location that you will pass in the json file
-    # to the sequence tagger model. i.e. output_predictions_file in the json file should have the same
-    # value as below
     predictions_file = f'{pred_dir}/predictions_{notes_file_name}.jsonl'
     
     # Initialize the file that will contain the original note text and the de-identified note text
@@ -43,9 +38,6 @@ def deid_forward_pass(notes_dir, notes_file_name, ner_dir, pred_dir, pretrained_
 
     # Initialize the model config. This config file contains the various parameters of the model.
     model_config = config_file
-
-    # print('file exists?\n')
-    # print( os.path.exists( ner_dataset_file ) )
 
     # Create the dataset creator object
     dataset_creator = DatasetCreator(
@@ -58,11 +50,9 @@ def deid_forward_pass(notes_dir, notes_file_name, ner_dir, pred_dir, pretrained_
         ignore_label='NA'
     )
 
-    # # This function call sentencizes and tokenizes the dataset
-    # # It returns a generator that iterates through the sequences.
-    # # We write the output to the ner_dataset_file (in json format)
-
-    # if ~os.path.exists( ner_dataset_file ):
+    # This function call sentencizes and tokenizes the dataset
+    # It returns a generator that iterates through the sequences.
+    # We write the output to the ner_dataset_file (in json format)
     
     ner_notes = dataset_creator.create(
         input_file=input_file,
@@ -85,8 +75,6 @@ def deid_forward_pass(notes_dir, notes_file_name, ner_dir, pred_dir, pretrained_
         EvaluationArguments,
         TrainingArguments
     ))
-    # If we pass only one argument to the script and it's the path to a json file,
-    # let's parse it to get our arguments.
     model_args, data_args, evaluation_args, training_args = parser.parse_json_file(json_file=model_config)
 
     # adjust model_args and data_args
@@ -118,7 +106,6 @@ def deid_forward_pass(notes_dir, notes_file_name, ner_dir, pred_dir, pretrained_
     sequence_tagger.load()
 
     # Set the required data and predictions of the sequence tagger
-    # Can also use data_args.test_file instead of ner_dataset_file (make sure it matches ner_dataset_file)
     sequence_tagger.set_predict(
         test_file=ner_dataset_file,
         max_test_samples=data_args.max_predict_samples,
@@ -136,29 +123,10 @@ def deid_forward_pass(notes_dir, notes_file_name, ner_dir, pred_dir, pretrained_
         for prediction in predictions:
             file.write(json.dumps(prediction) + '\n')
 
-    # # Initialize the text deid object
-    # text_deid = TextDeid(notation='BILOU', span_constraint='super_strict')
-
-    # # De-identify the text - using deid_strategy=replace_informative doesn't drop the PHI from the text, but instead
-    # # labels the PHI - which you can use to drop the PHI or do any other processing.
-    # # If you want to drop the PHI automatically, you can use deid_strategy=remove
-    # deid_notes = text_deid.run_deid(
-    #     input_file=input_file,
-    #     predictions_file=predictions_file,
-    #     deid_strategy='replace_tag_type',
-    #     keep_age=False,
-    #     metadata_key='meta',
-    #     note_id_key='note_id',
-    #     tokens_key='tokens',
-    #     predictions_key='predictions',
-    #     text_key='text',
-    # )
-
     # Initialize the text deid object
     text_deid = TextDeid(notation='BILOU', span_constraint='super_strict')
 
-    # De-identify the text - using deid_strategy=replace_informative doesn't drop the PHI from the text, but instead
-    # labels the PHI - which you can use to drop the PHI or do any other processing.
+    # De-identify the text
     # If you want to drop the PHI automatically, you can use deid_strategy=remove
     deid_notes = text_deid.run_deid(
         input_file=input_file,
@@ -182,8 +150,6 @@ def deid_forward_pass(notes_dir, notes_file_name, ner_dir, pred_dir, pretrained_
     # delete unnecessary intermediate outputs
     os.system(f"rm {ner_dataset_file}")
     os.system(f"rm {predictions_file}")
-
-    # to do: need a script for converting notes into the jsonl format
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

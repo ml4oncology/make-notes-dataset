@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 import pandas as pd
-# import submitit
 from deid_forward_pass import deid_forward_pass
 from pathlib import Path
 from datetime import datetime
