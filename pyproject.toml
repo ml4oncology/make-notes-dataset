@@ -1,26 +1,22 @@
 [build-system]
-# AVOID CHANGING REQUIRES: IT WILL BE UPDATED BY PYSCAFFOLD!
-requires = ["setuptools>=46.1.0", "setuptools_scm[toml]>=5"]
+requires = ["setuptools>=64", "setuptools_scm[toml]>=5"]
 build-backend = "setuptools.build_meta"
-
-[tool.setuptools_scm]
-# For smarter version schemes and other configuration options,
-# check out https://github.com/pypa/setuptools_scm
-version_scheme = "no-guess-dev"
 
 [project]
 name = "make-notes-dataset"
 description = "Generate notes dataset of patients treated at Princess Margaret hospital"
-readme = 'README.md'
-license = {file = "LICENSE"}
+readme = "README.md"
+license = {file = "LICENSE.txt"}
 version = "0.1.0"
 authors = [
-    { name = "Wayne Uy", email = "wayneisaac.uy@uhn.ca" },
-    { name = "Kevin He", email = "Kevin.He@uhn.ca" }
+    { name = "Wayne Uy", email = "wayneisaac.uy@uhn.ca" }
 ]
 dependencies = [
-    "ml_common @ git+https://github.com/ml4oncology/ml-common.git"
+    "pandas",
+    "numpy",
+    # Uncomment if actually still used:
+    # "ml_common @ git+https://github.com/ml4oncology/ml-common.git"
 ]
 
-[tool.setuptools]
-package-dir = {"make_notes_dataset" = "src"}
+[tool.setuptools.package-dir]
+make_notes_dataset = "src"
