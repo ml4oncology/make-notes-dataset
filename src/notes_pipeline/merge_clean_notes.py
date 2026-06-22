@@ -1,205 +1,377 @@
-import pandas as pd
-import argparse
+import sys
 import os
-from util import (extract_date_from_note, 
-                  extract_job_num,
-                  clean_clinical_note,
-                  strip_title)
+import argparse
 import logging
 
-logger = logging.getLogger(__name__)
-import sys
+import pandas as pd
+
+from util import (extract_date_from_note,
+                  extract_job_num,
+                  clean_clinical_note)
+
 sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/info")
 from phys_names import aliasDictionary
 
-def merge_clean_notes(parquet_gzip_dir, file_part_max_observations,
-                      file_part_max_clinical):
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Procedure names used when filtering med-onc notes without a Cosigner column
+ANCHORED_PROC_NAMES = [
+    'Clinic Note',
+    'Letter',
+    'History & Physical Note',
+    'Consultation Note',
+    'Clinic Note (Non-dictated)',
+]
+
+# Columns that must be present; optional ones are appended when available
+BASE_COLS_TO_KEEP = [
+    'mrn',
+    'Observations.ProcName',
+    'clinical_notes',
+    'visit_date',
+    'processed_physician_name',
+    'last_updated',
+    'dictated_by',
+]
+
+OPTIONAL_COLS = ['Cosigner', 'EPIC_FLAG']
+
+FINAL_COLS_ORDER = [
+    'mrn', 'Observations.ProcName', 'processed_physician_name',
+    'processed_date', 'clinical_notes', 'epr_date', 'dictated_by',
+    'Cosigner', 'EPIC_FLAG',
+]
+
+
+# ---------------------------------------------------------------------------
+# Loading helpers
+# ---------------------------------------------------------------------------
+
+def load_note_parts(parquet_gzip_dir, dir_name, fname, file_part_max):
+    """Load and concatenate all part files for one note type.
+
+    Parses visit_date and last_updated into UTC-aware datetimes.
     """
-    Process each observation notes and clinic notes and merge
-    them into 1 dataframe. Clean processed clinical notes by 
-    replacing the date with date in note if available and dropping 
-    duplicates according to extracted job number and date last updated.
+    parts = []
+    for ctr in range(file_part_max + 1):
+        path = os.path.join(parquet_gzip_dir, dir_name, f'{fname}_{ctr}.parquet.gzip')
+        parts.append(pd.read_parquet(path, engine='pyarrow', use_nullable_dtypes=True))
 
-    parquet_gzip_dir: directory path where the parquet gzip files are stored
-    file_part_max_observations: maximum number of files for the observations notes
-    file_part_max_clinical: maximum number of files for the clinical notes
+    df = pd.concat(parts)
+    df['visit_date'] = pd.to_datetime(df['visit_date'], utc=True)
+    df['last_updated'] = pd.to_datetime(
+        df['last_updated'].apply(
+            lambda x: x.replace('T', ' ').replace('Z', '')[:19] if isinstance(x, str) else pd.NaT
+        ),
+        utc=True,
+        format='%Y-%m-%d %H:%M:%S',
+    )
+    return df
+
+
+def load_and_merge_note_types(parquet_gzip_dir, file_part_max_observations, file_part_max_clinical):
+    """Load observation and clinic note parts and combine into a single dataframe."""
+    obs_df = load_note_parts(
+        parquet_gzip_dir, 'obs_notes_parts',
+        'processed_observation_notes', file_part_max_observations,
+    )
+    clinic_df = load_note_parts(
+        parquet_gzip_dir, 'clinic_notes_parts',
+        'processed_clinic_notes', file_part_max_clinical,
+    )
+
+    # Align column names before merging
+    clinic_df.rename(columns={'code_text': 'Observations.ProcName'}, inplace=True)
+
+    obs_df = obs_df[BASE_COLS_TO_KEEP].copy()
+
+    clinical_cols = BASE_COLS_TO_KEEP.copy()
+    for col in OPTIONAL_COLS:
+        if col in clinic_df.columns:
+            clinical_cols.append(col)
+    clinic_df = clinic_df[clinical_cols].copy()
+
+    return pd.concat([obs_df, clinic_df], ignore_index=True)
+
+
+# ---------------------------------------------------------------------------
+# EPIC / EPR splitting
+# ---------------------------------------------------------------------------
+
+def split_epic_epr(notes_df):
+    """Separate EPIC rows from EPR rows.
+
+    Returns (epr_df, epic_df). epic_df is None when EPIC_FLAG is absent.
     """
+    if 'EPIC_FLAG' not in notes_df.columns:
+        return notes_df, None
 
-    # merge dataframes
-    merged_notes = dict()
-    for note_type in ['observations', 'clinical']:
-        if note_type == 'observations':
-            fname = 'processed_observation_notes'
-            file_part_max = file_part_max_observations
-            dir_name = 'obs_notes_parts'
-        else:
-            fname = 'processed_clinic_notes'
-            file_part_max = file_part_max_clinical
-            dir_name = 'clinic_notes_parts'
-        
-        merged_notes_list = []
-        for ctr in range(file_part_max + 1):
-            # load dataframe
-            df_temp = pd.read_parquet(os.path.join(parquet_gzip_dir, dir_name, f'{fname}_{ctr}.parquet.gzip'), 
-                                      engine='pyarrow', use_nullable_dtypes = True)
-            merged_notes_list.append(df_temp)
-        merged_notes[note_type] = pd.concat(merged_notes_list)
-        merged_notes[note_type]['visit_date'] = pd.to_datetime(merged_notes[note_type]['visit_date'], utc=True)
-        merged_notes[note_type]['last_updated'] = pd.to_datetime(
-            merged_notes[note_type]['last_updated'].apply(
-                lambda x: x.replace('T', ' ').replace('Z', '')[:19] if isinstance(x, str) else pd.NaT
-            ),
-            utc=True,
-            format='%Y-%m-%d %H:%M:%S'
-        )
+    notes_df['EPIC_FLAG'] = notes_df['EPIC_FLAG'].apply(lambda x: 1 if x == 1 else 0)
+    epic_df = notes_df[notes_df['EPIC_FLAG'] == 1].copy()
+    epr_df = notes_df[notes_df['EPIC_FLAG'] != 1].copy()
+    return epr_df, epic_df
 
-    # merge the observations and clinical dataframe
 
-    cols_to_keep = ['mrn', 'Observations.ProcName', 'clinical_notes', 
-                    'visit_date', 'processed_physician_name', 
-                    'last_updated', 'dictated_by']
-    merged_notes['clinical'].rename(columns={'code_text':"Observations.ProcName"}, inplace=True)
-    merged_notes['observations'] = merged_notes['observations'][cols_to_keep].copy()
-    clinical_cols = cols_to_keep.copy()
-    for optional in ['Cosigner', 'EPIC_FLAG']:
-        if optional in merged_notes['clinical'].columns:
-            clinical_cols.append(optional)
-    merged_notes['clinical'] = merged_notes['clinical'][clinical_cols].copy()
-    notes_df = pd.concat([merged_notes['observations'], merged_notes['clinical']], ignore_index=True)
+# ---------------------------------------------------------------------------
+# Date processing
+# ---------------------------------------------------------------------------
 
-    # # add physician name
-    # mask_not_null = notes_df['dictated_by'].notnull()
-    # notes_df.loc[mask_not_null, 'dictated_by'] = notes_df.loc[mask_not_null, 'dictated_by'].apply(lambda x: strip_title(x))
-    epic_df = None
-    if 'EPIC_FLAG' in notes_df.columns:
-        notes_df['EPIC_FLAG'] = notes_df['EPIC_FLAG'].apply(lambda x: 1 if x == 1 else 0)
-        epic_df = notes_df[notes_df['EPIC_FLAG'] == 1]
-        notes_df = notes_df[notes_df['EPIC_FLAG'] != 1]
+def resolve_processed_date(notes_df):
+    """Derive 'processed_date' from the date embedded in the note text,
+    falling back to the visit date when out of range or missing.
 
-    # extract date from note
-    notes_df['date_in_note'] = notes_df['clinical_notes'].apply(lambda x: extract_date_from_note(x))
-    notes_df['date_in_note'] = pd.to_datetime(notes_df['date_in_note'], utc=True, format='mixed', errors='coerce' ) 
+    Also renames visit_date → epr_date and asserts no nulls remain.
+    """
+    notes_df['date_in_note'] = notes_df['clinical_notes'].apply(extract_date_from_note)
+    notes_df['date_in_note'] = pd.to_datetime(
+        notes_df['date_in_note'], utc=True, format='mixed', errors='coerce'
+    )
     notes_df['processed_date'] = notes_df['date_in_note'].copy()
+
+    # Replace out-of-range dates with the visit date
     # for EPR notes, if the year is beyond 2022, replace the date with visit date
-    mask_beyond_2022 = (notes_df['date_in_note'].dt.year > 2022)
+    mask_beyond_2022 = notes_df['date_in_note'].dt.year > 2022
     notes_df.loc[mask_beyond_2022, 'processed_date'] = notes_df.loc[mask_beyond_2022, 'visit_date']
-    # mask_date_out_of_range = (notes_df['date_in_note'].dt.year < 2004) | (notes_df['date_in_note'].dt.year > 2022)
-    mask_date_out_of_range = (notes_df['date_in_note'].dt.year < 2004)
-    notes_df.loc[mask_date_out_of_range, 'processed_date' ] = notes_df.loc[mask_date_out_of_range, 'visit_date']
-    mask_null_dates = notes_df['date_in_note'].isnull()
-    notes_df.loc[mask_null_dates, 'processed_date'] = notes_df.loc[mask_null_dates, 'visit_date']
-    notes_df.rename(columns={"visit_date": "epr_date"}, inplace=True)
 
+    mask_before_2004 = notes_df['date_in_note'].dt.year < 2004
+    notes_df.loc[mask_before_2004, 'processed_date'] = notes_df.loc[mask_before_2004, 'visit_date']
+
+    mask_null = notes_df['date_in_note'].isnull()
+    notes_df.loc[mask_null, 'processed_date'] = notes_df.loc[mask_null, 'visit_date']
+
+    notes_df.rename(columns={'visit_date': 'epr_date'}, inplace=True)
     notes_df['last_updated'] = pd.to_datetime(notes_df['last_updated'], utc=True)
-    
-    # check that there is no-nan entry in the processed date
-    assert sum(notes_df['processed_date'].isnull()) == 0 , "There is a nan date in the processed dates."
 
-    # delete duplicates among EPR notes
-    notes_df['job_id'] = notes_df['clinical_notes'].apply(lambda x: extract_job_num(x))
-    # find notes with duplicity more than 1
-    df_with_job_id = notes_df.loc[notes_df['job_id'].notnull()].copy()
-    df_job_id_count = df_with_job_id.groupby(['job_id']).size().reset_index(name='job_id_count')
-    job_id_w_duplicates = list(df_job_id_count.loc[df_job_id_count['job_id_count'] > 1]['job_id'].unique())
-    
-    # sort by last updated
-    to_clean_notes_df = notes_df.loc[notes_df['job_id'].isin(job_id_w_duplicates)].copy()
-    to_clean_notes_df.sort_values(by='last_updated', ascending=False, inplace=True)
-    # group by MRN, procedure name, and job id. keep only the first record
-    filtered_records = to_clean_notes_df.groupby(['mrn', 'Observations.ProcName', 'job_id']).first().reset_index()
+    assert notes_df['processed_date'].isnull().sum() == 0, \
+        "There is a nan date in the processed dates."
 
-    # check that for the same job id and procedure name, there are no duplicates anymore
-    df_with_job_id = filtered_records.loc[filtered_records['job_id'].notnull()].copy()
-    df_job_id_count = df_with_job_id.groupby(['mrn', 'Observations.ProcName', 'job_id']).size().reset_index(name='job_id_count')
-    assert df_job_id_count['job_id_count'].max() == 1, "There is a duplicate record with the same procedure name."
-    
-    logger.info(f'Number of duplicate EPR records dropped based on job id: {to_clean_notes_df.shape[0] - filtered_records.shape[0]}')
+    return notes_df
 
-    # filtered notes
-    merged_notes_drop_duplicates_temp = pd.concat([notes_df.loc[~notes_df['job_id'].isin(job_id_w_duplicates)], filtered_records]).reset_index()
 
-    # remove leading white space from notes
-    merged_notes_drop_duplicates_temp['clinical_notes'] = merged_notes_drop_duplicates_temp['clinical_notes'].apply(lambda x: x.lstrip())
+# ---------------------------------------------------------------------------
+# EPR deduplication
+# ---------------------------------------------------------------------------
 
-    # drop duplicates based on 'clinical_notes' and 'processed_date'
-    merged_notes_drop_duplicates = merged_notes_drop_duplicates_temp.drop_duplicates(subset=['clinical_notes', 'processed_date'])
+def find_duplicate_job_ids(notes_df):
+    """Return the list of job IDs that appear more than once."""
+    df_with_job_id = notes_df.loc[notes_df['job_id'].notnull()]
+    job_id_counts = df_with_job_id.groupby('job_id').size().reset_index(name='job_id_count')
+    return job_id_counts.loc[job_id_counts['job_id_count'] > 1, 'job_id'].unique().tolist()
 
-    logger.info(f'Duplicates dropped among EPR notes based on identical note and date: {merged_notes_drop_duplicates_temp.shape[0] - merged_notes_drop_duplicates.shape[0]}')
 
-    if epic_df is not None:
-        # delete duplicates among EPIC notes
-        before_drop = len(epic_df)
-        epic_df_deduped = epic_df.drop_duplicates(subset='clinical_notes')
-        after_drop = len(epic_df_deduped)
+def deduplicate_by_job_id(notes_df):
+    """For EPR notes with duplicate job IDs, keep only the most recently updated record."""
+    notes_df['job_id'] = notes_df['clinical_notes'].apply(extract_job_num)
+    job_id_w_duplicates = find_duplicate_job_ids(notes_df)
 
-        logger.info(f'Duplicates dropped among EPIC notes: {before_drop - after_drop}')
+    duplicated_df = notes_df.loc[notes_df['job_id'].isin(job_id_w_duplicates)].copy()
+    duplicated_df.sort_values(by='last_updated', ascending=False, inplace=True)
+    filtered_records = (
+        duplicated_df
+        .groupby(['mrn', 'Observations.ProcName', 'job_id'])
+        .first()
+        .reset_index()
+    )
 
-        epic_df_deduped.rename(columns={"visit_date": "processed_date"}, inplace=True)
-        epic_df_deduped['dictated_by'] = epic_df_deduped['processed_physician_name']
-        epic_df_deduped[['clinical_notes', 'removed_text']] = epic_df_deduped['clinical_notes'].apply(lambda x: pd.Series(clean_clinical_note(x)))
-        # drop removed_text column
-        epic_df_deduped.drop(columns=['removed_text'], inplace=True)
+    # Sanity check: no remaining duplicates per (mrn, proc, job_id)
+    df_check = filtered_records.loc[filtered_records['job_id'].notnull()]
+    counts = df_check.groupby(['mrn', 'Observations.ProcName', 'job_id']).size()
+    assert counts.max() == 1, "There is a duplicate record with the same procedure name."
 
-        merged_notes_drop_duplicates = pd.concat([merged_notes_drop_duplicates, epic_df_deduped], ignore_index=True)
+    n_dropped = duplicated_df.shape[0] - filtered_records.shape[0]
+    logger.info(f'Number of duplicate EPR records dropped based on job id: {n_dropped}')
 
-    cols_to_keep = ['mrn', 'Observations.ProcName', 'processed_physician_name', 'processed_date', 'clinical_notes', 'epr_date', 'dictated_by', 'Cosigner', 'EPIC_FLAG']
-    existing_cols = [col for col in cols_to_keep if col in merged_notes_drop_duplicates.columns]
+    non_duplicated_df = notes_df.loc[~notes_df['job_id'].isin(job_id_w_duplicates)]
+    return pd.concat([non_duplicated_df, filtered_records]).reset_index()
 
-    merged_notes_drop_duplicates[existing_cols].to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes.parquet.gzip', compression='gzip', index=False)
 
-    # find the list of medical oncologists from the aliasDictionary
-    unique_aliases = []
-    for _, values in aliasDictionary.items():
-        unique_aliases.append(values)
-    unique_aliases = list(set(unique_aliases))
+def deduplicate_epr_notes(notes_df):
+    """Full EPR deduplication: by job ID first, then by identical note + date."""
+    notes_df = deduplicate_by_job_id(notes_df)
 
-    # apply the alias mapping to processed_physician_name
-    merged_notes_drop_duplicates['processed_physician_name'] = merged_notes_drop_duplicates['processed_physician_name'].replace(aliasDictionary)
-    # if Cosigner is a column, apply the alias mapping to Cosigner as well
-    if 'Cosigner' in merged_notes_drop_duplicates.columns:
-        merged_notes_drop_duplicates['Cosigner'] = merged_notes_drop_duplicates['Cosigner'].replace(aliasDictionary)
+    # Strip leading whitespace before the exact-match dedup
+    notes_df['clinical_notes'] = notes_df['clinical_notes'].apply(str.lstrip)
 
-    # restrict merged_notes_drop_duplicates[existing_cols] such that processed_physician_name or Cosigner is in unique_aliases
-    # if Cosigner exists, keep rows where either processed_physician_name or Cosigner is in unique_aliases
+    before = notes_df.shape[0]
+    notes_df = notes_df.drop_duplicates(subset=['clinical_notes', 'processed_date'])
+    logger.info(
+        f'Duplicates dropped among EPR notes based on identical note and date: {before - notes_df.shape[0]}'
+    )
+    return notes_df
 
-    anchored_proc_names = ['Clinic Note', 'Letter', 'History & Physical Note', 
-                    'Consultation Note', 'Clinic Note (Non-dictated)']
-    if 'Cosigner' in merged_notes_drop_duplicates.columns:
+
+# ---------------------------------------------------------------------------
+# EPIC note processing
+# ---------------------------------------------------------------------------
+
+def deduplicate_and_clean_epic_notes(epic_df):
+    """Deduplicate EPIC notes and apply clinical-note cleaning."""
+    before = len(epic_df)
+    epic_df = epic_df.drop_duplicates(subset='clinical_notes').copy()
+    logger.info(f'Duplicates dropped among EPIC notes: {before - len(epic_df)}')
+
+    epic_df.rename(columns={'visit_date': 'processed_date'}, inplace=True)
+    epic_df['dictated_by'] = epic_df['processed_physician_name']
+    epic_df[['clinical_notes', 'removed_text']] = (
+        epic_df['clinical_notes'].apply(lambda x: pd.Series(clean_clinical_note(x)))
+    )
+    epic_df.drop(columns=['removed_text'], inplace=True)
+    return epic_df
+
+
+# ---------------------------------------------------------------------------
+# Physician alias filtering
+# ---------------------------------------------------------------------------
+
+def get_unique_aliases():
+    """Return the deduplicated list of canonical physician names from aliasDictionary."""
+    return list(set(aliasDictionary.values()))
+
+
+def apply_alias_mapping(df):
+    """Replace physician name variants with their canonical aliases."""
+    df['processed_physician_name'] = df['processed_physician_name'].replace(aliasDictionary)
+    if 'Cosigner' in df.columns:
+        df['Cosigner'] = df['Cosigner'].replace(aliasDictionary)
+    return df
+
+
+def filter_medonc_notes(df, unique_aliases):
+    """Keep only notes authored or co-signed by a known medical oncologist."""
+    # restrict merged_notes_drop_duplicates[existing_cols] such that processed_physician_name 
+    # or Cosigner is in unique_aliases
+    # if Cosigner exists, keep rows where either processed_physician_name or Cosigner is in 
+    # unique_aliases
+    if 'Cosigner' in df.columns:
         mask = (
-            merged_notes_drop_duplicates['processed_physician_name'].isin(unique_aliases) |
-            merged_notes_drop_duplicates['Cosigner'].isin(unique_aliases) & (
-            (merged_notes_drop_duplicates['EPIC_FLAG'] == 1) |
-            (merged_notes_drop_duplicates['Observations.ProcName'].isin(anchored_proc_names))
+            df['processed_physician_name'].isin(unique_aliases) |
+            (
+                df['Cosigner'].isin(unique_aliases) &
+                (
+                    (df['EPIC_FLAG'] == 1) |
+                    df['Observations.ProcName'].isin(ANCHORED_PROC_NAMES)
+                )
             )
         )
     else:
-        mask = ( merged_notes_drop_duplicates['processed_physician_name'].isin(unique_aliases) & 
-                merged_notes_drop_duplicates['Observations.ProcName'].isin(anchored_proc_names)
+        mask = (
+            df['processed_physician_name'].isin(unique_aliases) &
+            df['Observations.ProcName'].isin(ANCHORED_PROC_NAMES)
         )
+    return df.loc[mask].copy()
 
-    medonc_notes_df = merged_notes_drop_duplicates.loc[mask, existing_cols].copy()    
-    medonc_notes_df.to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip', compression='gzip', index=False)
 
-    # if EPIC_FLAG is in the columns of medonc_notes_df, only keep the records with EPIC_FLAG == 1 and save
-    if 'EPIC_FLAG' in medonc_notes_df.columns:
-        medonc_notes_df_epic = medonc_notes_df[medonc_notes_df['EPIC_FLAG'] == 1].copy()
-        medonc_notes_df_epic.to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip', compression='gzip', index=False)
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
 
-        # further restrict EPIC patients to those that did not have EPR records
-        medonc_notes_df_epr = medonc_notes_df[medonc_notes_df['EPIC_FLAG'] == 0].copy()
-        mrns_EPR = set(medonc_notes_df_epr['mrn'].unique())
-        mrns_EPIC = set(medonc_notes_df_epic['mrn'].unique())
-        mrns_only_EPIC = mrns_EPIC - mrns_EPR
+def select_output_cols(df):
+    """Return the dataframe restricted to the desired output column order."""
+    existing = [col for col in FINAL_COLS_ORDER if col in df.columns]
+    return df[existing]
 
-        medonc_notes_df_epic_records_only = medonc_notes_df_epic[medonc_notes_df_epic['mrn'].isin(mrns_only_EPIC)].copy()
-        medonc_notes_df_epic_records_only.to_parquet(f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip', compression='gzip', index=False)
-        
+
+def save_parquet(df, path):
+    df.to_parquet(path, compression='gzip', index=False)
+    logger.info(f'Saved: {path}')
+
+
+def save_epic_subsets(medonc_df, parquet_gzip_dir):
+    """Save the EPIC-only and EPIC-records-only subsets of med-onc notes."""
+    medonc_epic = medonc_df[medonc_df['EPIC_FLAG'] == 1].copy()
+    save_parquet(
+        medonc_epic,
+        f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip',
+    )
+
+    medonc_epr = medonc_df[medonc_df['EPIC_FLAG'] == 0]
+    mrns_epr = set(medonc_epr['mrn'].unique())
+    mrns_epic = set(medonc_epic['mrn'].unique())
+    mrns_only_epic = mrns_epic - mrns_epr
+
+    medonc_epic_only = medonc_epic[medonc_epic['mrn'].isin(mrns_only_epic)].copy()
+    save_parquet(
+        medonc_epic_only,
+        f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip',
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main orchestration
+# ---------------------------------------------------------------------------
+
+def merge_clean_notes(parquet_gzip_dir, file_part_max_observations, file_part_max_clinical):
+    """Process observation and clinic notes, merge them, clean, and save outputs.
+
+    Cleans processed clinical notes by replacing the date with the date found
+    in the note body (when available), and deduplicates by job number and
+    last-updated timestamp.
+
+    Args:
+        parquet_gzip_dir: directory path where the parquet gzip files are stored
+        file_part_max_observations: maximum part number for observation note files
+        file_part_max_clinical: maximum part number for clinic note files
+    """
+    # --- Load and combine all note parts ---
+    notes_df = load_and_merge_note_types(
+        parquet_gzip_dir, file_part_max_observations, file_part_max_clinical
+    )
+
+    # --- Separate EPIC notes from EPR notes ---
+    notes_df, epic_df = split_epic_epr(notes_df)
+
+    # --- Resolve visit dates for EPR notes ---
+    notes_df = resolve_processed_date(notes_df)
+
+    # --- Deduplicate EPR notes ---
+    notes_df = deduplicate_epr_notes(notes_df)
+
+    # --- Process and merge EPIC notes if present ---
+    if epic_df is not None:
+        epic_df = deduplicate_and_clean_epic_notes(epic_df)
+        notes_df = pd.concat([notes_df, epic_df], ignore_index=True)
+
+    # --- Save full merged output ---
+    all_notes_output = select_output_cols(notes_df)
+    save_parquet(
+        all_notes_output,
+        f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes.parquet.gzip',
+    )
+
+    # --- Apply physician alias mapping and filter to med-onc notes ---
+    unique_aliases = get_unique_aliases()
+    notes_df = apply_alias_mapping(notes_df)
+    medonc_df = filter_medonc_notes(notes_df, unique_aliases)
+    medonc_output = select_output_cols(medonc_df)
+
+    save_parquet(
+        medonc_output,
+        f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip',
+    )
+
+    # --- Save EPIC-specific subsets if the flag column is present ---
+    if 'EPIC_FLAG' in medonc_output.columns:
+        save_epic_subsets(medonc_output, parquet_gzip_dir)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("parquet_gzip_dir", help = "directory of the parquet gzip files", type = str) # directory of the parquet gzip files
-    parser.add_argument("file_part_max_observations", help = "maximum file part number for observations", type = int) # maximum file part number for observations
-    parser.add_argument("file_part_max_clinical", help = "maximum file part number for clinical", type = int) # maximum file part number for clinical
+    parser.add_argument("parquet_gzip_dir", help="directory of the parquet gzip files", type=str)
+    parser.add_argument("file_part_max_observations", help="maximum file part number for observations", type=int)
+    parser.add_argument("file_part_max_clinical", help="maximum file part number for clinical", type=int)
     args = parser.parse_args()
 
-    merge_clean_notes(args.parquet_gzip_dir, args.file_part_max_observations, 
-                      args.file_part_max_clinical)
+    merge_clean_notes(
+        args.parquet_gzip_dir,
+        args.file_part_max_observations,
+        args.file_part_max_clinical,
+    )
