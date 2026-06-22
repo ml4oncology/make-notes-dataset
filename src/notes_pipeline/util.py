@@ -3,9 +3,6 @@ import json
 import re
 import sys
 import multiprocessing as mp
-# sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/HealthReportRecords/constants")
-# # load constants from file
-# from constants import ambigousPhysicians, aliasDictionary
 
 sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/info")
 from phys_names import ambigousPhysicians, aliasDictionary
@@ -389,7 +386,7 @@ def process_physician(df):
 
     return df
 
-def get_last_updated(jsonDir, filePartNum, filename, procNames):
+def get_last_updated_obs_notes(jsonDir, filePartNum, filename, procNames):
     """
         Extract the lastUpdated column from the raw json file since it's not present
         in the processed CSV files.
@@ -401,7 +398,6 @@ def get_last_updated(jsonDir, filePartNum, filename, procNames):
     """
     # load the json file
     filename = filename.replace('file-part-num', str(filePartNum)).replace('parquet.gzip', 'json')
-    # jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_results_with_status_dates.json'
     jsonFileName = f'{jsonDir}/{filename}'
 
     with open(jsonFileName) as json_file:
@@ -440,7 +436,6 @@ def get_last_updated_clinic_ci_notes(jsonDir, filePartNum, filename, procNames):
     """
     # load the json file
     filename = filename.replace('file-part-num', str(filePartNum)).replace('parquet.gzip', 'json')
-    # jsonFileName = f'{jsonDir}/2Blast_part4_{filePartNum}_clinic_notes.json'
     jsonFileName = f'{jsonDir}/{filename}'
 
     with open(jsonFileName) as json_file:
@@ -600,14 +595,3 @@ def clean_clinical_note(text, min_garbage_length=55):
     # === Done ===
     removed_text = '\n'.join(removed_items)
     return text, removed_text
-
-###############################################################################
-# Multiprocessing
-###############################################################################
-
-def parallelize(generator, worker, processes: int = 4) -> list:
-    pool = mp.Pool(processes=processes)
-    result = pool.map(worker, generator)
-    pool.close()
-    pool.join()
-    return result
