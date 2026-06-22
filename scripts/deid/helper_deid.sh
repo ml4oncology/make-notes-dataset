@@ -18,5 +18,5 @@ apptainer exec --nv --bind $data_dir,$ner_dir,$pred_dir,$save_dir $container_pat
 export MKL_THREADING_LAYER=GNU && \
 export MKL_SERVICE_FORCE_INTEL=1 && \
 export PYTHONPATH='' && \
-conda run -n robust_deid python3 ../src/deid/main_deid.py \
+conda run -n robust_deid python3 ../../src/deid/main_deid.py \
 $data_dir $df_name $ner_dir $pred_dir $save_dir $pretrained_model_path $config_file $eval_batch_size"

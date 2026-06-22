@@ -25,14 +25,14 @@ fi
 # --------------------------------------------------
 zip_dir=${data_dir}/observation_json_zip
 output_dir=${data_dir}/observation_json
-../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/extract/extract_zip.py $zip_dir $output_dir"
+../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../../src/extract/extract_zip.py $zip_dir $output_dir"
 
 # --------------------------------------------------
 # Extract clinic notes JSON zipped files
 # --------------------------------------------------
 zip_dir=${data_dir}/clinic_notes_json_zip
 output_dir=${data_dir}/clinic_notes_json
-../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/extract/extract_zip.py $zip_dir $output_dir"
+../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../../src/extract/extract_zip.py $zip_dir $output_dir"
 
 # --------------------------------------------------
 # Extract observation CSV zipped files (batched)
@@ -41,7 +41,7 @@ zip_dir=${data_dir}/observation_csv_zip
 output_dir=${data_dir}/observation_parquet
 total_batches=100
 for ((i=0; i<total_batches; i++)); do
-    ../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/extract/extract_zip.py $zip_dir $output_dir --batch_index $i --total_batches $total_batches" 
+    ../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../../src/extract/extract_zip.py $zip_dir $output_dir --batch_index $i --total_batches $total_batches" 
 done
 
 # --------------------------------------------------
@@ -49,4 +49,4 @@ done
 # --------------------------------------------------
 zip_dir=${data_dir}/clinic_notes_csv_zip
 output_dir=${data_dir}/clinic_notes_parquet
-../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/extract/extract_zip.py $zip_dir $output_dir"
+../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../../src/extract/extract_zip.py $zip_dir $output_dir"

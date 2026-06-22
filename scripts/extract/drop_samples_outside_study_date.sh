@@ -14,4 +14,4 @@ notes_file="merged_processed_cleaned_clinical_notes.parquet.gzip"
 start_date="2008-01-01"
 end_date="2017-12-31"
 
-../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/extract/drop_samples_outside_study_date.py $data_dir $save_dir $notes_file $start_date $end_date"
+../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../../src/extract/drop_samples_outside_study_date.py $data_dir $save_dir $notes_file $start_date $end_date"

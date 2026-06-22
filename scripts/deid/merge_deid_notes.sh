@@ -26,4 +26,4 @@ else
     exit 1
 fi
 
-../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/deid/merge_deid_dataframes.py $deid_dir"
+../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../../src/deid/merge_deid_dataframes.py $deid_dir"

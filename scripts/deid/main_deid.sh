@@ -29,7 +29,7 @@ chunk_size=500
 
 # Step 1: Split the dataframe
 echo "Splitting dataframe..."
-split_files=$(python3 ../src/extract/split_dataframe.py "$data_dir" "$df_name" "$chunk_size")
+split_files=$(python3 ../../src/extract/split_dataframe.py "$data_dir" "$df_name" "$chunk_size")
 
 # Step 2: Create output directories
 mkdir -p logs

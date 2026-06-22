@@ -1,56 +1,70 @@
 #!/bin/bash
-#export PATH="$HOME"
-export PATH=$PATH:$(pwd)
 
 userName="t127556uhn"
 memory=8
-condaEnv="~/miniforge3/envs/LLMfinetune/bin/python"
+condaEnv="~/miniforge3/envs/OncoTRAIL/bin/python"
 nGPU=0
 run_time="0-01:00:00"
 partition="all"
 
-save_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08"
-mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part5.csv"
+# ---------------------------------------------------------------------------
+# Usage: process_notes.sh <data_pull_date> <dir_type>
+#   dir_type  -- "observation" or "clinic"
+# ---------------------------------------------------------------------------
+if [[ $# -ne 2 ]]; then
+    echo "Usage: $0 <data_pull_date> <dir_type>"
+    echo "  dir_type: observation | clinic"
+    exit 1
+fi
 
-data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2025-01-08/observation_parquet"
-json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2025-01-08/observation_json"
-clinic_notes=0
-upper_limit=1775
-file_name="2Blast_part5_file-part-num_observations.parquet.gzip"
-for ((i=0; i<=upper_limit; i++))
-do
-    pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/process_notes.py $data_dir $json_dir $save_dir $mrn_file $clinic_notes $i $file_name"
+data_pull_date="$1"
+dir_type="$2"
+
+save_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/${data_pull_date}"
+
+case "$dir_type" in
+    observation)
+        data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/${data_pull_date}/observation_parquet"
+        json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/${data_pull_date}/observation_json"
+        clinic_notes=0
+        ;;
+    clinic)
+        data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/${data_pull_date}/clinic_notes_parquet"
+        json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/${data_pull_date}/clinic_notes_json"
+        clinic_notes=1
+        ;;
+    *)
+        echo "Error: dir_type must be 'observation' or 'clinic', got '${dir_type}'"
+        exit 1
+        ;;
+esac
+
+# Determine upper_limit and file_name from data_pull_date.
+case "$data_pull_date" in
+    "2025-01-08")
+        upper_limit=1775
+        mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part5.csv"
+        case "$dir_type" in
+            observation) file_name="2Blast_part5_file-part-num_observations.parquet.gzip" ;;
+            clinic)      file_name="2Blast_part5_file-part-num_clinic_notes.parquet.gzip"  ;;
+        esac
+        ;;
+    "2024-06-04")
+        upper_limit=598
+        mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part4.csv"
+        case "$dir_type" in
+            observation) file_name="2Blast_part4_file-part-num_results_with_status_dates.parquet.gzip" ;;
+            clinic)      file_name="2Blast_part4_file-part-num_clinic_notes.parquet.gzip"                ;;
+        esac
+        ;;
+    *)
+        echo "Error: unsupported data_pull_date '${data_pull_date}'" >&2
+        exit 1
+        ;;
+esac
+
+for ((i = 0; i <= upper_limit; i++)); do
+    ../pySLURMargs.py "$userName" "$memory" "$condaEnv" "$nGPU" \
+        "$run_time" "$partition" \
+        "../../src/notes_pipeline/process_notes.py ${data_dir} ${json_dir} ${save_dir} ${mrn_file} ${clinic_notes} ${i} ${file_name}"
 done
-
-# data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2025-01-08/clinic_notes_parquet"
-# json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2025-01-08/clinic_notes_json"
-# clinic_notes=1
-# upper_limit=1775
-# file_name="2Blast_part5_file-part-num_clinic_notes.parquet.gzip"
-# for ((i=0; i<=upper_limit; i++))
-# do
-#     pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/process_notes.py $data_dir $json_dir $save_dir $mrn_file $clinic_notes $i $file_name"
-# done
-
-# save_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04"
-# mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part4.csv"
-
-# data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/observation_parquet"
-# json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/observation_json"
-# clinic_notes=0
-# upper_limit=598
-# file_name="2Blast_part4_file-part-num_results_with_status_dates.parquet.gzip"
-# for ((i=0; i<=upper_limit; i++))
-# do
-#     pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/process_notes.py $data_dir $json_dir $save_dir $mrn_file $clinic_notes $i $file_name"
-# done
-
-# data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/clinic_notes_parquet"
-# json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04/clinic_notes_json"
-# clinic_notes=1
-# upper_limit=598
-# file_name="2Blast_part4_file-part-num_clinic_notes.parquet.gzip"
-# for ((i=0; i<=upper_limit; i++))
-# do
-#     pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../src/process_notes.py $data_dir $json_dir $save_dir $mrn_file $clinic_notes $i $file_name"
-# done
