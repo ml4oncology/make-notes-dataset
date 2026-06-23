@@ -24,13 +24,13 @@ save_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/${dat
 
 case "$dir_type" in
     observation)
-        data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/${data_pull_date}/observation_parquet"
-        json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/${data_pull_date}/observation_json"
+        data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/observation_parquet"
+        json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/observation_json"
         clinic_notes=0
         ;;
     clinic)
-        data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/${data_pull_date}/clinic_notes_parquet"
-        json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/${data_pull_date}/clinic_notes_json"
+        data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/clinic_notes_parquet"
+        json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/clinic_notes_json"
         clinic_notes=1
         ;;
     *)
