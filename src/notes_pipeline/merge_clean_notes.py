@@ -29,7 +29,7 @@ ANCHORED_PROC_NAMES = [
 ]
 
 # Columns that must be present; optional ones are appended when available
-BASE_COLS_TO_KEEP = [
+BASE_COLS_TO_KEEP_CLINICAL_NOTES = [
     'mrn',
     'Observations.ProcName',
     'clinical_notes',
@@ -45,6 +45,15 @@ FINAL_COLS_ORDER = [
     'mrn', 'Observations.ProcName', 'processed_physician_name',
     'processed_date', 'clinical_notes', 'epr_date', 'dictated_by',
     'Cosigner', 'EPIC_FLAG',
+]
+
+BASE_COLS_TO_KEEP_IMAGING_REPORTS = [
+    'mrn',
+    'Observations.ProcName',
+    'imaging_report',
+    'visit_date',
+    'verified_by',
+    'read_by'
 ]
 
 
@@ -64,17 +73,18 @@ def load_note_parts(parquet_gzip_dir, dir_name, fname, file_part_max):
 
     df = pd.concat(parts)
     df['visit_date'] = pd.to_datetime(df['visit_date'], utc=True)
-    df['last_updated'] = pd.to_datetime(
-        df['last_updated'].apply(
-            lambda x: x.replace('T', ' ').replace('Z', '')[:19] if isinstance(x, str) else pd.NaT
-        ),
-        utc=True,
-        format='%Y-%m-%d %H:%M:%S',
-    )
+    if 'last_updated' in df.columns:
+        df['last_updated'] = pd.to_datetime(
+            df['last_updated'].apply(
+                lambda x: x.replace('T', ' ').replace('Z', '')[:19] if isinstance(x, str) else pd.NaT
+            ),
+            utc=True,
+            format='%Y-%m-%d %H:%M:%S',
+        )
     return df
 
 
-def load_and_merge_note_types(parquet_gzip_dir, file_part_max_observations, file_part_max_clinical):
+def load_and_merge_note_types_clinical_notes(parquet_gzip_dir, file_part_max_observations, file_part_max_clinical):
     """Load observation and clinic note parts and combine into a single dataframe."""
     obs_df = load_note_parts(
         parquet_gzip_dir, 'obs_notes_parts',
@@ -88,9 +98,9 @@ def load_and_merge_note_types(parquet_gzip_dir, file_part_max_observations, file
     # Align column names before merging
     clinic_df.rename(columns={'code_text': 'Observations.ProcName'}, inplace=True)
 
-    obs_df = obs_df[BASE_COLS_TO_KEEP].copy()
+    obs_df = obs_df[BASE_COLS_TO_KEEP_CLINICAL_NOTES].copy()
 
-    clinical_cols = BASE_COLS_TO_KEEP.copy()
+    clinical_cols = BASE_COLS_TO_KEEP_CLINICAL_NOTES.copy()
     for col in OPTIONAL_COLS:
         if col in clinic_df.columns:
             clinical_cols.append(col)
@@ -98,6 +108,15 @@ def load_and_merge_note_types(parquet_gzip_dir, file_part_max_observations, file
 
     return pd.concat([obs_df, clinic_df], ignore_index=True)
 
+
+def load_and_merge_note_types_imaging_reports(parquet_gzip_dir, file_part_max_observations):
+    """Load imaging report parts and combine into a single dataframe."""
+    img_df = load_note_parts(
+        parquet_gzip_dir, 'obs_notes_parts',
+        'processed_observation_notesprocessed_pe_dvt_imaging_report', file_part_max_observations,
+    )
+
+    return img_df[BASE_COLS_TO_KEEP_IMAGING_REPORTS].copy()
 
 # ---------------------------------------------------------------------------
 # EPIC / EPR splitting
@@ -317,9 +336,18 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations, file_part_ma
         file_part_max_observations: maximum part number for observation note files
         file_part_max_clinical: maximum part number for clinic note files
     """
-    # --- Load and combine all note parts ---
-    notes_df = load_and_merge_note_types(
+    # --- Load and combine all clinical note parts ---
+    notes_df = load_and_merge_note_types_clinical_notes(
         parquet_gzip_dir, file_part_max_observations, file_part_max_clinical
+    )
+
+    # --- Load and combine all pe/dvt imaging reports ---
+    img_df = load_and_merge_note_types_imaging_reports(
+        parquet_gzip_dir, file_part_max_observations
+    )
+    save_parquet(
+        img_df,
+        f'{parquet_gzip_dir}/merged_pe_dvt_imaging_report.parquet.gzip',
     )
 
     # --- Separate EPIC notes from EPR notes ---

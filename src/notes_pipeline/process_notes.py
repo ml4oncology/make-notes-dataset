@@ -13,98 +13,20 @@ from util import (process_date, process_physician,
                   get_last_updated_clinic_ci_notes,
                   extract_header)
 
+from constants import (PROCEDURE_NAMES_OF_INTEREST_EPR,
+                       PROCEDURE_NAMES_OF_INTEREST_EPIC,
+                       NOTES_METADATA,
+                       OTHER_METADATA,
+                       PATIENT_ID_PATTERN,
+                       AUTHOR_TYPES_OF_INTEREST,
+                       IMAGING_PROCEDURE_NAMES,
+                       IMAGING_METADATA,
+                       IMAGING_NOTES_METADATA)
+
 sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/info")
 from phys_names import aliasDictionary
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-PROCEDURE_NAMES_OF_INTEREST_EPR = [
-    'Letter',
-    'Consultation Note',
-    'Communication Note',
-    'Radiation Therapy Note',
-    'OR Procedure/Notes',
-    'Clinic Note',
-    'Telephone Advice',
-    'History & Physical Note',
-    'Clinic Note (Non-dictated)',
-    'Discharge Summary',
-    'Unscheduled Discharge Summary',
-    'Operative Note',
-    'Progress Notes',
-    'Letters',
-    'Consultation Report',
-    'History',
-    'Discharge Summary Report',
-    'Medical Records Report-PMH',
-    'Medical Records Letter',
-    'Geriatric Clinic Note',
-    'Annual Examination',
-]
-
-PROCEDURE_NAMES_OF_INTEREST_EPIC = [
-    'PROGRESS', 'OP NOTE', 'Teleconsult', 'CONSULT', 'H&P',
-    'Disch Summ', 'ED Prov Note', 'Post-Proc', 'MEDICAL STUD', 'CARE PLAN',
-    'Code Doc', 'PATIENT CARE', 'PROCEDURE', 'TELEPHONE EN', 'AN Preproc',
-    'Anes Procs', 'AN Postproc', 'Dictated Let', 'PATIENT INST', 'PRE-PROCEDUR',
-    'Radiation Th', 'MCC Note', 'A&P Note', 'Sedation Doc', 'Txp', 'CCRT Note',
-    'AN CAC', 'Comm Rev', 'Dial Round', 'Research Not', 'Dent Proc', 'Rad Comp',
-    'ACP', 'Pre-Proc', 'Event', 'ED Note', 'Nursing', 'BRIEF OP NOT',
-    'Pre-Sedation', 'Rx MedRec', 'ED Procedure', 'Interval H&P', 'H&P(View-Onl',
-    'Care Plan', 'Care and Ser', 'Dial Month', 'Rad Plan', 'SADR', 'Report',
-    'Group Note', 'SubjObj', 'Attestation', 'ICC Note', 'OR NURSING',
-    'Hospital Cou', 'ED Triage No', 'PFAx', 'BMT Planning',
-]
-
-NOTES_METADATA = [
-    'medical records report',
-    'note',
-    'additional details',
-    'textualreport',
-    'document more advice',
-    'reason for communication',
-    'information given',
-    'reason for call',
-    'spoke with',
-    'phone number',
-    'comment',
-    'communication with',
-    'person calling',
-    'e-mail address',
-    'clinical_note',  # this is for clinic notes
-    'fax number',
-    'relation to patient',
-    'fax number',
-    'instructions',
-    'medical records letter',
-]
-
-OTHER_METADATA = [
-    'date dictated',
-    'dictated by',
-    'documented by',
-    'attending/staff',
-    'report type',
-    'specialty',
-    'transcribed by',
-    'family physician',
-    'department',
-    'location',
-    'attending/staff signing off note',
-    'dictating md verifying note',
-    'dictated by/for',
-    "dictated by and/or verified by/resident's attending",
-]
-
-PATIENT_ID_PATTERN = r'^[A-Z]{2}\d{5}[A-Z]{2}\.R$'
-
-AUTHOR_TYPES_OF_INTEREST = ['Resident', 'Fellow', 'Physician', 'Medical Student', '', 'Research Fellow']
-
 
 # ---------------------------------------------------------------------------
 # Text cleaning helpers
@@ -309,12 +231,25 @@ def deduplicate_clinic_metadata(df):
     return df_grouped
 
 
-def filter_and_pivot_metadata(df, map_meta):
-    """Retain only metadata rows of interest and pivot to one-row-per-visit."""
-    df_meta = df.loc[df['meta_data'].isin(NOTES_METADATA + OTHER_METADATA)].copy()
+def filter_and_pivot_metadata(df, map_meta, metadata_of_interest=None):
+    """Retain only metadata rows of interest and pivot to one-row-per-visit.
+
+    Args:
+        df: long-format dataframe with 'meta_data' and 'text_data' columns.
+        map_meta: dict mapping raw metadata labels to column-safe names.
+        metadata_of_interest: list of raw metadata labels to keep. Defaults to
+            NOTES_METADATA + OTHER_METADATA (the clinical-notes set).
+    """
+    if metadata_of_interest is None:
+        metadata_of_interest = NOTES_METADATA + OTHER_METADATA
+
+    df_meta = df.loc[df['meta_data'].isin(metadata_of_interest)].copy()
 
     if 'Observations.ProcCode' in df_meta.columns:
-        df_meta['Observations.ProcCode'] = df_meta['Observations.ProcCode'].astype(int)
+        try:
+            df_meta['Observations.ProcCode'] = df_meta['Observations.ProcCode'].astype(int)
+        except ValueError:
+            df_meta['Observations.ProcCode'] = df_meta['Observations.ProcCode'].astype(str)
 
     df_meta['meta_data'] = df_meta['meta_data'].map(map_meta)
     cols_to_group_by = [col for col in df_meta.columns if col not in ['meta_data', 'text_data']]
@@ -413,9 +348,9 @@ def apply_date_corrections(pivot_df, clinic_notes_dir):
     return pivot_df
 
 
-def drop_empty_note_rows(pivot_df):
-    """Remove rows where 'clinical_notes' contains nothing but newlines."""
-    pivot_df['new_line_only'] = pivot_df['clinical_notes'].apply(
+def drop_empty_note_rows(pivot_df, note_col='clinical_notes'):
+    """Remove rows where the note column contains nothing but newlines."""
+    pivot_df['new_line_only'] = pivot_df[note_col].apply(
         lambda x: all(char == '\n' for char in x)
     )
     pivot_df = pivot_df.loc[pivot_df['new_line_only'] == False]
@@ -515,47 +450,68 @@ def process_epic_notes(epic_notes_raw_df):
 
 
 # ---------------------------------------------------------------------------
-# Main orchestration
+# Imaging report helpers (observation directory only)
 # ---------------------------------------------------------------------------
 
-def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes_dir, file_part_num, file_name):
-    """Process each dataset pulled by the CDI team.
+def combine_text_data(df, group_by_cols, meta_data_col):
+    """Concatenate split text_data rows that share the same meta_data label.
 
-    Restricts to a few procedures only. The resulting dataframe has one row per
-    patient visit, including visit metadata (MRN, patient code, visit code,
-    attending physician, date, etc.) and the clinical note for that visit.
-
-    Args:
-        data_dir: directory path where the raw zip files are saved
-        json_dir: directory path where the raw json files are saved
-        save_dir: directory path where the processed dataframe will be saved
-        mrn_file: file path for the patient-code-to-MRN map
-        clinic_notes_dir: True/1 if these come from clinic notes directory, False/0 otherwise
-        file_part_num: file part number to be processed
-        file_name: file name of the gzip file; must contain 'file-part-num' token
+    Used for imaging reports where a single metadata field (e.g.
+    'narrative_impression') can appear on multiple rows for the same visit.
+    Non-matching rows are left untouched and re-combined with the result.
     """
-    # --- Load and pre-filter ---
-    df, file_name = load_raw_data(data_dir, file_name, file_part_num)
-    df = filter_valid_patient_ids(df)
-    df, proc_name_col, visit_id_col = rename_columns(df, clinic_notes_dir)
+    mask = df['meta_data'].eq(meta_data_col)
+    df_target = df[mask].copy()
+    df_target['text_data'] = df_target['text_data'].fillna('\n')
 
-    df = attach_mrn(df, mrn_file)
+    df_target_collapsed = (
+        df_target.groupby(group_by_cols, sort=False, as_index=False)
+        .agg({
+            **{col: 'first' for col in df.columns if col not in group_by_cols + ['text_data']},
+            'text_data': ''.join,
+        })
+    )
+    return pd.concat([df[~mask], df_target_collapsed], ignore_index=True)
 
-    # --- Split EPIC notes out (clinic-notes path only) ---
+
+def aggregate_imaging_columns(pivot_df, notes_meta):
+    """Merge imaging report columns into a single 'imaging_report' column."""
+    cols_to_agg = [x for x in notes_meta if x in pivot_df.columns]
+
+    pivot_df[cols_to_agg] = pivot_df[cols_to_agg].astype(str)
+    pivot_df[cols_to_agg] = pivot_df[cols_to_agg].replace(to_replace='nan', value='')
+    pivot_df[cols_to_agg] = pivot_df[cols_to_agg].replace(to_replace='None', value='')
+
+    pivot_df['imaging_report'] = pivot_df[cols_to_agg].agg('\n\n'.join, axis=1)
+    pivot_df.drop(columns=cols_to_agg, inplace=True)
+    return pivot_df
+
+
+# ---------------------------------------------------------------------------
+# Sub-pipelines
+# ---------------------------------------------------------------------------
+
+def process_clinical_notes_pipeline(df, proc_name_col, visit_id_col,
+                                    clinic_notes_dir, json_dir,
+                                    file_part_num, file_name, save_dir):
+    """Run the clinical-notes branch of the pipeline.
+
+    Covers procedure filtering, metadata extraction, pivoting, date correction,
+    physician processing, last-updated merge, and saving.
+    """
+    # --- Split EPIC notes out (clinic-notes directory only) ---
     epic_notes_raw_df = None
     if clinic_notes_dir:
         df = apply_clinic_note_adjustments(df)
         df, epic_notes_raw_df = split_epic_notes(df)
 
-    # --- Filter to procedures of interest ---
-    # must do this only on EPR notes
+    # --- Filter to clinical procedures of interest ---
     df = df[df[proc_name_col].isin(PROCEDURE_NAMES_OF_INTEREST_EPR)].copy()
 
-    # --- Prepare metadata maps and de-duplicate (clinic-notes path) ---
+    # --- Build metadata columns ---
     map_notes_meta, map_other_meta = build_metadata_maps()
     map_meta = {**map_notes_meta, **map_other_meta}
 
-    # --- Build metadata columns ---
     if clinic_notes_dir:
         df['meta_data'], df['text_data'] = zip(*df['note_text'].apply(split_metadata_col_clinic))
         df = df.reset_index()
@@ -589,7 +545,7 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes_dir, file
     )
 
     # --- Drop rows that are nothing but newlines ---
-    pivot_data_df = drop_empty_note_rows(pivot_data_df)
+    pivot_data_df = drop_empty_note_rows(pivot_data_df, note_col='clinical_notes')
 
     # --- Merge EPIC notes if present ---
     if epic_notes_raw_df is not None and not epic_notes_raw_df.empty:
@@ -599,12 +555,109 @@ def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes_dir, file
     # --- Final text cleanup ---
     pivot_data_df['clinical_notes'] = pivot_data_df['clinical_notes'].apply(lambda x: x.rstrip())
 
-    # --- Save output ---
+    # --- Save ---
     if clinic_notes_dir:
-        out_path = f"{save_dir}/processed_clinic_notes_dir_{file_part_num}.parquet.gzip"
+        out_path = f"{save_dir}/processed_clinic_notes_{file_part_num}.parquet.gzip"
     else:
         out_path = f"{save_dir}/processed_observation_notes_{file_part_num}.parquet.gzip"
     pivot_data_df.to_parquet(out_path, compression='gzip', index=False)
+
+
+def process_imaging_reports_pipeline(df, visit_id_col, save_dir, file_part_num):
+    """Run the imaging-reports branch of the pipeline (observation directory only).
+
+    Covers procedure filtering, metadata normalisation, text combining, pivoting,
+    date correction, and saving.
+    """
+    # --- Filter to imaging procedures of interest ---
+    # Match on lower-cased, stripped procedure name
+    df = df[df['Observations.ProcName'].str.lower().str.strip().isin(IMAGING_PROCEDURE_NAMES)].copy()
+
+    # --- Build metadata columns and normalise labels ---
+    df = create_metadata(df)
+
+    imaging_meta_normalised = [elem.replace(' ', '_') for elem in IMAGING_METADATA]
+    df['meta_data'] = df['meta_data'].str.replace(' ', '_')
+    df = df.loc[df['meta_data'].isin(imaging_meta_normalised)].copy()
+
+    # Merge synonymous metadata labels before pivoting
+    df.loc[df['meta_data'].isin(['narrative', 'impression']), 'meta_data'] = 'narrative_impression'
+    df.loc[df['meta_data'].isin(['view', 'area']), 'meta_data'] = 'view_area'
+
+    # Combine split rows for multi-line fields
+    group_cols = ['mrn', 'observation_id']
+    df = combine_text_data(df, group_cols, 'narrative_impression')
+    df = combine_text_data(df, group_cols, 'view_area')
+
+    # --- Pivot ---
+    # Build a trivial identity map (labels are already column-safe after normalisation above)
+    all_imaging_meta = [
+        elem for elem in imaging_meta_normalised
+        if elem not in ['narrative', 'impression', 'view', 'area']
+    ] + ['narrative_impression', 'view_area']
+    map_meta = {elem: elem for elem in all_imaging_meta}
+
+    pivot_data_df, df_meta_of_interest = filter_and_pivot_metadata(
+        df, map_meta, metadata_of_interest=all_imaging_meta
+    )
+    pivot_data_df = deduplicate_pivot(pivot_data_df, df_meta_of_interest, visit_id_col)
+
+    # --- Aggregate into single imaging_report column ---
+    pivot_data_df = aggregate_imaging_columns(pivot_data_df, IMAGING_NOTES_METADATA)
+
+    # --- Drop duplicates based on 'imaging_reports' ---
+    pivot_data_df.drop_duplicates(subset=['imaging_report'], inplace=True)
+
+    # --- Date correction (observation path) ---
+    pivot_data_df = apply_date_corrections(pivot_data_df, clinic_notes_dir=False)
+
+    # --- Drop rows that are nothing but newlines ---
+    pivot_data_df = drop_empty_note_rows(pivot_data_df, note_col='imaging_report')
+
+    # --- Final text cleanup ---
+    pivot_data_df['imaging_report'] = pivot_data_df['imaging_report'].apply(lambda x: x.rstrip())
+
+    # --- Save ---
+    out_path = f"{save_dir}/processed_pe_dvt_imaging_report_{file_part_num}.parquet.gzip"
+    pivot_data_df.to_parquet(out_path, compression='gzip', index=False)
+
+
+def process_notes(data_dir, json_dir, save_dir, mrn_file, clinic_notes_dir, file_part_num, file_name):
+    """Process each dataset pulled by the CDI team.
+
+    Loads the raw data once, then dispatches to:
+      - process_clinical_notes_pipeline: consultation/clinic notes saved per
+        the usual observation/clinic-notes filenames.
+      - process_imaging_reports_pipeline: PE/DVT imaging reports saved
+        separately (observation directory only).
+
+    Args:
+        data_dir: directory path where the raw zip files are saved
+        json_dir: directory path where the raw json files are saved
+        save_dir: directory path where the processed dataframe will be saved
+        mrn_file: file path for the patient-code-to-MRN map
+        clinic_notes_dir: True/1 if these come from the clinic notes directory,
+            False/0 if from the observation directory
+        file_part_num: file part number to be processed
+        file_name: file name of the gzip file; must contain 'file-part-num' token
+    """
+    # --- Shared loading steps ---
+    df, file_name = load_raw_data(data_dir, file_name, file_part_num)
+    df = filter_valid_patient_ids(df)
+    df, proc_name_col, visit_id_col = rename_columns(df, clinic_notes_dir)
+    df = attach_mrn(df, mrn_file)
+
+    # --- Clinical notes pipeline ---
+    process_clinical_notes_pipeline(
+        df.copy(), proc_name_col, visit_id_col,
+        clinic_notes_dir, json_dir, file_part_num, file_name, save_dir,
+    )
+
+    # --- Imaging reports pipeline (observation directory only) ---
+    if not clinic_notes_dir:
+        process_imaging_reports_pipeline(
+            df.copy(), visit_id_col, save_dir, file_part_num,
+        )
 
 
 # ---------------------------------------------------------------------------
