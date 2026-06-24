@@ -113,7 +113,7 @@ def load_and_merge_note_types_imaging_reports(parquet_gzip_dir, file_part_max_ob
     """Load imaging report parts and combine into a single dataframe."""
     img_df = load_note_parts(
         parquet_gzip_dir, 'obs_notes_parts',
-        'processed_observation_notesprocessed_pe_dvt_imaging_report', file_part_max_observations,
+        'processed_pe_dvt_imaging_report', file_part_max_observations,
     )
 
     return img_df[BASE_COLS_TO_KEEP_IMAGING_REPORTS].copy()
