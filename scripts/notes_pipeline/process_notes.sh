@@ -1,11 +1,12 @@
 #!/bin/bash
 
 userName="t127556uhn"
-memory=8
+memory=64
 condaEnv="~/miniforge3/envs/OncoTRAIL/bin/python"
 nGPU=0
-run_time="0-01:00:00"
-partition="all"
+run_time="0-04:00:00"
+partition="veryhimem"
+nCPU=32
 
 # ---------------------------------------------------------------------------
 # Usage: process_notes.sh <data_pull_date> <dir_type>
@@ -45,16 +46,28 @@ case "$data_pull_date" in
         upper_limit=1775
         mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part5.csv"
         case "$dir_type" in
-            observation) file_name="2Blast_part5_file-part-num_observations.parquet.gzip" ;;
-            clinic)      file_name="2Blast_part5_file-part-num_clinic_notes.parquet.gzip"  ;;
+            observation) 
+                file_name="2Blast_part5_file-part-num_observations.parquet.gzip"
+                file_glob="2Blast_part5_*_observations.parquet.gzip" 
+                ;;
+            clinic)      
+                file_name="2Blast_part5_file-part-num_clinic_notes.parquet.gzip"  
+                file_glob="2Blast_part5_*_clinic_notes.parquet.gzip"
+                ;;
         esac
         ;;
     "2024-06-04")
         upper_limit=598
         mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part4.csv"
         case "$dir_type" in
-            observation) file_name="2Blast_part4_file-part-num_results_with_status_dates.parquet.gzip" ;;
-            clinic)      file_name="2Blast_part4_file-part-num_clinic_notes.parquet.gzip"                ;;
+            observation) 
+                file_name="2Blast_part4_file-part-num_results_with_status_dates.parquet.gzip" 
+                file_glob="2Blast_part4_*_num_results_with_status_dates.parquet.gzip"
+                ;;
+            clinic)      
+                file_name="2Blast_part4_file-part-num_clinic_notes.parquet.gzip"
+                file_glob="2Blast_part4_*_clinic_notes.parquet.gzip"                
+                ;;
         esac
         ;;
     *)
@@ -63,8 +76,6 @@ case "$data_pull_date" in
         ;;
 esac
 
-for ((i = 0; i <= upper_limit; i++)); do
-    ../pySLURMargs.py "$userName" "$memory" "$condaEnv" "$nGPU" \
-        "$run_time" "$partition" \
-        "../../src/notes_pipeline/process_notes.py ${data_dir} ${json_dir} ${save_dir} ${mrn_file} ${clinic_notes} ${i} ${file_name}"
-done
+../pySLURMargs.py "$userName" "$memory" "$condaEnv" "$nGPU" \
+        "$run_time" "$partition" "$nCPU" \
+        "../../src/notes_pipeline/process_notes.py ${data_dir} ${json_dir} ${save_dir} ${mrn_file} ${clinic_notes} ${file_glob} ${file_name} ${upper_limit}"
