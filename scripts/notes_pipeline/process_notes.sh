@@ -6,7 +6,7 @@ condaEnv="~/miniforge3/envs/OncoTRAIL/bin/python"
 nGPU=0
 run_time="0-04:00:00"
 partition="veryhimem"
-nCPU=32
+nCPU=1
 
 # ---------------------------------------------------------------------------
 # Usage: process_notes.sh <data_pull_date> <dir_type>
@@ -24,14 +24,14 @@ dir_type="$2"
 case "$dir_type" in
     observation)
         data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/observation_parquet"
-        json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/observation_json"
         save_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/${data_pull_date}/obs_notes_parts"
+        last_updated_csv_path="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/last_updated_observation.csv"
         clinic_notes=0
         ;;
     clinic)
         data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/clinic_notes_parquet"
-        json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/clinic_notes_json"
         save_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/${data_pull_date}/clinic_notes_parts"
+        last_updated_csv_path="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/last_updated_clinic.csv"
         clinic_notes=1
         ;;
     *)
@@ -43,29 +43,23 @@ esac
 # Determine upper_limit and file_name from data_pull_date.
 case "$data_pull_date" in
     "2025-01-08")
-        upper_limit=1775
         mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part5.csv"
         case "$dir_type" in
             observation) 
-                file_name="2Blast_part5_file-part-num_observations.parquet.gzip"
                 file_glob="2Blast_part5_*_observations.parquet.gzip" 
                 ;;
-            clinic)      
-                file_name="2Blast_part5_file-part-num_clinic_notes.parquet.gzip"  
+            clinic)       
                 file_glob="2Blast_part5_*_clinic_notes.parquet.gzip"
                 ;;
         esac
         ;;
     "2024-06-04")
-        upper_limit=598
         mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part4.csv"
         case "$dir_type" in
-            observation) 
-                file_name="2Blast_part4_file-part-num_results_with_status_dates.parquet.gzip" 
+            observation)  
                 file_glob="2Blast_part4_*_num_results_with_status_dates.parquet.gzip"
                 ;;
             clinic)      
-                file_name="2Blast_part4_file-part-num_clinic_notes.parquet.gzip"
                 file_glob="2Blast_part4_*_clinic_notes.parquet.gzip"                
                 ;;
         esac
@@ -78,4 +72,4 @@ esac
 
 ../pySLURMargs.py "$userName" "$memory" "$condaEnv" "$nGPU" \
         "$run_time" "$partition" "$nCPU" \
-        "../../src/notes_pipeline/process_notes.py ${data_dir} ${json_dir} ${save_dir} ${mrn_file} ${clinic_notes} ${file_glob} ${file_name} ${upper_limit}"
+        "../../src/notes_pipeline/process_notes.py ${data_dir} ${save_dir} ${mrn_file} ${clinic_notes} ${file_glob} ${last_updated_csv_path}"

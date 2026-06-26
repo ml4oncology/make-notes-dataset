@@ -24,6 +24,8 @@ This is a brief description of the notebooks in this repository.
 
 * Filtering patients to study period: Drop all records outside the study period. Drop patients whose first visit is outside the study period.
 
+* For all other processing pipelines in the code, the approach is via trial and error. It is an iterative process. Process the notes, manually inspect processed notes for a small sample and compare with EPR/EPIC, apply pipeline fixes, then repeat.
+
 ## Extraction
 
 Before processing the notes, raw CSV and JSON files must be extracted from their zipped archives. This is done separately for observation and clinic note archives. Any unzipped CSV files are converted to Parquet format during extraction.

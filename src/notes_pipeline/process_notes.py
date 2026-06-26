@@ -3,9 +3,8 @@ process_notes.py  —  Polars-accelerated rewrite
 ================================================
 Run ONE job per note type for a given data-pull date:
 
-    python process_notes.py <data_dir> <json_dir> <save_dir> <mrn_file>
+    python process_notes.py <data_dir> <save_dir> <mrn_file>
                             <clinic_notes_dir> <file_glob>
-                            <file_name_template> <upper_limit>
 
     e.g. (observation):
         python process_notes.py \
@@ -14,9 +13,7 @@ Run ONE job per note type for a given data-pull date:
             /cluster/.../2025-01-08/obs_notes_parts \
             /cluster/.../mrn_map_2Blast_part5.csv \
             0 \
-            "2Blast_part5_*_observations.parquet.gzip" \
-            "2Blast_part5_file-part-num_observations.parquet.gzip" \
-            1775
+            "2Blast_part5_*_observations.parquet.gzip"
 
     e.g. (clinic):
         python process_notes.py \
@@ -25,9 +22,7 @@ Run ONE job per note type for a given data-pull date:
             /cluster/.../2025-01-08/clinic_notes_parts \
             /cluster/.../mrn_map_2Blast_part5.csv \
             1 \
-            "2Blast_part5_*_clinic_notes.parquet.gzip" \
-            "2Blast_part5_file-part-num_clinic_notes.parquet.gzip" \
-            1775
+            "2Blast_part5_*_clinic_notes.parquet.gzip"
 
 Outputs (all in <save_dir>):
   observation mode:
@@ -52,8 +47,6 @@ logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 from util import (
     process_date,
     process_physician,
-    get_last_updated_obs_notes,
-    get_last_updated_clinic_ci_notes,
     extract_header,
 )
 
@@ -469,46 +462,6 @@ def drop_empty_note_rows(
     pivot_df.drop('new_line_only', axis=1, inplace=True)
     return pivot_df
 
-
-# ---------------------------------------------------------------------------
-# Last-updated helper — aggregated across all file parts
-# ---------------------------------------------------------------------------
-
-def build_last_updated_all_parts(
-    json_dir: str,
-    file_name_template: str,
-    upper_limit: int,
-    clinic_notes_dir: bool,
-    proc_names: list,
-) -> pd.DataFrame:
-    """Collect last-updated timestamps for every file part and concatenate.
-
-    Reuses the existing get_last_updated_* util functions unchanged;
-    iterates over all part numbers and stacks the results.
-    """
-    frames = []
-    for i in range(upper_limit + 1):
-        try:
-            if clinic_notes_dir:
-                df_part = get_last_updated_clinic_ci_notes(
-                    json_dir, i, file_name_template, proc_names
-                )
-            else:
-                df_part = get_last_updated_obs_notes(
-                    json_dir, i, file_name_template, proc_names
-                )
-            if df_part is not None and not df_part.empty:
-                frames.append(df_part)
-        except Exception as exc:
-            logger.warning(f"get_last_updated failed for part {i}: {exc}")
-
-    if not frames:
-        logger.warning("No last_updated data found — returning empty DataFrame.")
-        return pd.DataFrame()
-
-    return pd.concat(frames, ignore_index=True)
-
-
 # ---------------------------------------------------------------------------
 # EPIC notes pipeline (pandas — row-level logic, unchanged from original)
 # ---------------------------------------------------------------------------
@@ -628,6 +581,10 @@ def combine_text_data_pl(
     )
     lf_target = lf_target.group_by(group_by_cols, maintain_order=True).agg(agg_exprs)
 
+    columns = lf.schema.names()               # master ordering from original lf
+    lf_target = lf_target.select(columns)
+    lf_other  = lf_other.select(columns)
+
     return pl.concat([lf_other, lf_target])
 
 
@@ -655,10 +612,8 @@ def process_clinical_notes_pipeline(
     proc_name_col: str,
     visit_id_col: str,
     clinic_notes_dir: bool,
-    json_dir: str,
-    file_name_template: str,
-    upper_limit: int,
     save_dir: str,
+    df_last_updated: pd.DataFrame
 ) -> None:
     """Polars-accelerated clinical notes pipeline.
 
@@ -712,14 +667,8 @@ def process_clinical_notes_pipeline(
     pivot_df = process_physician(pivot_df)
 
     # ---- Last-updated timestamps (aggregated across all parts) ----
-    logger.info("Building last_updated lookup across all file parts ...")
-    df_last_updated = build_last_updated_all_parts(
-        json_dir=json_dir,
-        file_name_template=file_name_template,
-        upper_limit=upper_limit,
-        clinic_notes_dir=clinic_notes_dir,
-        proc_names=PROCEDURE_NAMES_OF_INTEREST_EPR,
-    )
+    logger.info("Adding last_updated column ...")
+
     if not df_last_updated.empty:
         pivot_df = pivot_df.merge(
             df_last_updated,
@@ -844,13 +793,11 @@ def process_imaging_reports_pipeline(
 
 def process_notes(
     data_dir: str,
-    json_dir: str,
     save_dir: str,
     mrn_file: str,
     clinic_notes_dir: bool,
     file_glob: str,
-    file_name_template: str,
-    upper_limit: int,
+    df_last_updated: pd.DataFrame
 ) -> None:
     """Process all parquet parts for one note type in a single job.
       - process_clinical_notes_pipeline: consultation/clinic notes saved per
@@ -860,15 +807,12 @@ def process_notes(
 
     Args:
         data_dir           : directory of raw parquet files
-        json_dir           : directory of raw json files (for last_updated)
         save_dir           : output directory
         mrn_file           : path to the PATIENT_RESEARCH_ID → MRN CSV
         clinic_notes_dir   : True/1 = clinic notes, False/0 = observations
         file_glob          : glob pattern matching all parquet parts,
                              e.g. "2Blast_part5_*_observations.parquet.gzip"
-        file_name_template : original per-part template with 'file-part-num',
-                             forwarded to get_last_updated_* helpers
-        upper_limit        : highest part index (0-indexed)
+        df_last_updated    : last_updated dataframe
     """
     os.makedirs(save_dir, exist_ok=True)
 
@@ -884,17 +828,20 @@ def process_notes(
         proc_name_col=proc_name_col,
         visit_id_col=visit_id_col,
         clinic_notes_dir=clinic_notes_dir,
-        json_dir=json_dir,
-        file_name_template=file_name_template,
-        upper_limit=upper_limit,
         save_dir=save_dir,
+        df_last_updated=df_last_updated
     )
 
     # ---- Imaging pipeline (observation only) — re-scan ----
     if not clinic_notes_dir:
+        lf_img = scan_raw_parquet(data_dir, file_glob)
+        lf_img = filter_valid_patient_ids_pl(lf_img)
+        lf_img, _, visit_id_col_img = rename_columns_pl(lf_img, clinic_notes_dir=False)
+        lf_img = attach_mrn_pl(lf_img, mrn_file)
+
         process_imaging_reports_pipeline(
-            lf=lf,
-            visit_id_col=visit_id_col,
+            lf=lf_img,
+            visit_id_col=visit_id_col_img,
             save_dir=save_dir,
         )
 
@@ -908,7 +855,6 @@ if __name__ == "__main__":
         description="Process all parquet parts for one note type in a single job."
     )
     parser.add_argument("data_dir", type=str, help="Raw parquet directory")
-    parser.add_argument("json_dir", type=str, help="Raw JSON directory (for last_updated)")
     parser.add_argument("save_dir", type=str, help="Output directory")
     parser.add_argument("mrn_file", type=str, help="Path to the MRN map CSV")
     parser.add_argument(
@@ -925,27 +871,19 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
-        "file_name_template",
+        "last_updated_csv_path",
         type=str,
         help=(
-            "Per-part file name template containing 'file-part-num', "
-            "e.g. '2Blast_part5_file-part-num_observations.parquet.gzip'"
+            "Path to the last_updated.csv file, "
         ),
-    )
-    parser.add_argument(
-        "upper_limit",
-        type=int,
-        help="Highest file part number (0-indexed)",
     )
     args = parser.parse_args()
 
     process_notes(
         data_dir=args.data_dir,
-        json_dir=args.json_dir,
         save_dir=args.save_dir,
         mrn_file=args.mrn_file,
         clinic_notes_dir=bool(args.clinic_notes_dir),
         file_glob=args.file_glob,
-        file_name_template=args.file_name_template,
-        upper_limit=args.upper_limit,
+        df_last_updated = pd.read_csv(args.last_updated_csv_path)
     )

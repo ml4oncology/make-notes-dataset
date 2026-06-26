@@ -21,7 +21,8 @@ condaEnv = sys.argv[3]
 nGPU = sys.argv[4]
 run_time = sys.argv[5]
 partition = sys.argv[6]
-mcmd = sys.argv[7:]
+nCPU = sys.argv[7] if len(sys.argv) > 7 and not sys.argv[7].startswith('/') else '1'
+mcmd = sys.argv[8:] if len(sys.argv) > 8 and not sys.argv[7].startswith('/') else sys.argv[7:]
 
 os.environ['PATH'] = '/usr/local/slurm/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/cluster/home/' + userName + '/.local/bin:/cluster/home/' + userName + '/bin'
 
@@ -47,6 +48,7 @@ fp.write('#SBATCH -D ' + pwd + '\n')
 fp.write('#SBATCH -J py\n')
 fp.write('#SBATCH --get-user-env\n')
 fp.write('#SBATCH --ntasks=1\n')
+fp.write('#SBATCH --cpus-per-task=' + nCPU + '\n')
 fp.write('#SBATCH --mem=' + memory + 'GB\n')
 fp.write('#SBATCH --time=' + run_time + '\n')
 if int(nGPU) > 0:
