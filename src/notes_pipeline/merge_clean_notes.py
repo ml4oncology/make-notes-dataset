@@ -61,39 +61,32 @@ BASE_COLS_TO_KEEP_IMAGING_REPORTS = [
 # Loading helpers
 # ---------------------------------------------------------------------------
 
-def load_note_parts(parquet_gzip_dir, dir_name, fname, file_part_max):
-    """Load and concatenate all part files for one note type.
+def load_and_merge_note_types_clinical_notes(obs_notes_dir, clinic_notes_dir):
+    """Load the single processed observation and clinic note files and combine.
 
-    Parses visit_date and last_updated into UTC-aware datetimes.
+    process_notes.py already merges all parts, so each directory contains
+    exactly one output file. visit_date and last_updated are cast to UTC here
+    since they arrive as plain strings/dates from the saved parquet files.
     """
-    parts = []
-    for ctr in range(file_part_max + 1):
-        path = os.path.join(parquet_gzip_dir, dir_name, f'{fname}_{ctr}.parquet.gzip')
-        parts.append(pd.read_parquet(path, engine='pyarrow', use_nullable_dtypes=True))
-
-    df = pd.concat(parts)
-    df['visit_date'] = pd.to_datetime(df['visit_date'], utc=True)
-    if 'last_updated' in df.columns:
-        df['last_updated'] = pd.to_datetime(
-            df['last_updated'].apply(
-                lambda x: x.replace('T', ' ').replace('Z', '')[:19] if isinstance(x, str) else pd.NaT
-            ),
-            utc=True,
-            format='%Y-%m-%d %H:%M:%S',
-        )
-    return df
-
-
-def load_and_merge_note_types_clinical_notes(parquet_gzip_dir, file_part_max_observations, file_part_max_clinical):
-    """Load observation and clinic note parts and combine into a single dataframe."""
-    obs_df = load_note_parts(
-        parquet_gzip_dir, 'obs_notes_parts',
-        'processed_observation_notes', file_part_max_observations,
+    obs_df = pd.read_parquet(
+        os.path.join(obs_notes_dir, 'processed_observation_notes.parquet.gzip'),
+        engine='pyarrow', use_nullable_dtypes=True,
     )
-    clinic_df = load_note_parts(
-        parquet_gzip_dir, 'clinic_notes_parts',
-        'processed_clinic_notes', file_part_max_clinical,
+    clinic_df = pd.read_parquet(
+        os.path.join(clinic_notes_dir, 'processed_clinic_notes.parquet.gzip'),
+        engine='pyarrow', use_nullable_dtypes=True,
     )
+
+    for df in (obs_df, clinic_df):
+        df['visit_date'] = pd.to_datetime(df['visit_date'], utc=True)
+        if 'last_updated' in df.columns:
+            df['last_updated'] = pd.to_datetime(
+                df['last_updated'].apply(
+                    lambda x: x.replace('T', ' ').replace('Z', '')[:19] if isinstance(x, str) else pd.NaT
+                ),
+                utc=True,
+                format='%Y-%m-%d %H:%M:%S',
+            )
 
     # Align column names before merging
     clinic_df.rename(columns={'code_text': 'Observations.ProcName'}, inplace=True)
@@ -109,13 +102,16 @@ def load_and_merge_note_types_clinical_notes(parquet_gzip_dir, file_part_max_obs
     return pd.concat([obs_df, clinic_df], ignore_index=True)
 
 
-def load_and_merge_note_types_imaging_reports(parquet_gzip_dir, file_part_max_observations):
-    """Load imaging report parts and combine into a single dataframe."""
-    img_df = load_note_parts(
-        parquet_gzip_dir, 'obs_notes_parts',
-        'processed_pe_dvt_imaging_report', file_part_max_observations,
-    )
+def load_imaging_reports(obs_notes_dir):
+    """Load the single processed imaging report file.
 
+    process_notes.py already merges all parts and saves one file.
+    visit_date is cast to UTC; there is no last_updated column for imaging.
+    """
+    img_df = pd.read_parquet(
+        os.path.join(obs_notes_dir, 'processed_pe_dvt_imaging_report.parquet.gzip'),
+        engine='pyarrow', use_nullable_dtypes=True,
+    )
     return img_df[BASE_COLS_TO_KEEP_IMAGING_REPORTS].copy()
 
 # ---------------------------------------------------------------------------
@@ -300,12 +296,12 @@ def save_parquet(df, path):
     logger.info(f'Saved: {path}')
 
 
-def save_epic_subsets(medonc_df, parquet_gzip_dir):
+def save_epic_subsets(medonc_df, save_dir):
     """Save the EPIC-only and EPIC-records-only subsets of med-onc notes."""
     medonc_epic = medonc_df[medonc_df['EPIC_FLAG'] == 1].copy()
     save_parquet(
         medonc_epic,
-        f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip',
+        os.path.join(save_dir, 'merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip'),
     )
 
     medonc_epr = medonc_df[medonc_df['EPIC_FLAG'] == 0]
@@ -316,7 +312,7 @@ def save_epic_subsets(medonc_df, parquet_gzip_dir):
     medonc_epic_only = medonc_epic[medonc_epic['mrn'].isin(mrns_only_epic)].copy()
     save_parquet(
         medonc_epic_only,
-        f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip',
+        os.path.join(save_dir, 'merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip'),
     )
 
 
@@ -324,7 +320,7 @@ def save_epic_subsets(medonc_df, parquet_gzip_dir):
 # Main orchestration
 # ---------------------------------------------------------------------------
 
-def merge_clean_notes(parquet_gzip_dir, file_part_max_observations, file_part_max_clinical):
+def merge_clean_notes(save_dir, obs_notes_dir, clinic_notes_dir):
     """Process observation and clinic notes, merge them, clean, and save outputs.
 
     Cleans processed clinical notes by replacing the date with the date found
@@ -332,22 +328,21 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations, file_part_ma
     last-updated timestamp.
 
     Args:
-        parquet_gzip_dir: directory path where the parquet gzip files are stored
-        file_part_max_observations: maximum part number for observation note files
-        file_part_max_clinical: maximum part number for clinic note files
+        save_dir:         output directory
+        obs_notes_dir:    directory containing processed_observation_notes.parquet.gzip
+                          and processed_pe_dvt_imaging_report.parquet.gzip
+        clinic_notes_dir: directory containing processed_clinic_notes.parquet.gzip
     """
     # --- Load and combine all clinical note parts ---
     notes_df = load_and_merge_note_types_clinical_notes(
-        parquet_gzip_dir, file_part_max_observations, file_part_max_clinical
+        obs_notes_dir, clinic_notes_dir
     )
 
-    # --- Load and combine all pe/dvt imaging reports ---
-    img_df = load_and_merge_note_types_imaging_reports(
-        parquet_gzip_dir, file_part_max_observations
-    )
+    # --- Load and save pe/dvt imaging reports ---
+    img_df = load_imaging_reports(obs_notes_dir)
     save_parquet(
         img_df,
-        f'{parquet_gzip_dir}/merged_pe_dvt_imaging_report.parquet.gzip',
+        os.path.join(save_dir, 'merged_pe_dvt_imaging_report.parquet.gzip'),
     )
 
     # --- Separate EPIC notes from EPR notes ---
@@ -368,7 +363,7 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations, file_part_ma
     all_notes_output = select_output_cols(notes_df)
     save_parquet(
         all_notes_output,
-        f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes.parquet.gzip',
+        os.path.join(save_dir, 'merged_processed_cleaned_clinical_notes.parquet.gzip'),
     )
 
     # --- Apply physician alias mapping and filter to med-onc notes ---
@@ -379,12 +374,12 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations, file_part_ma
 
     save_parquet(
         medonc_output,
-        f'{parquet_gzip_dir}/merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip',
+        os.path.join(save_dir, 'merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip'),
     )
 
     # --- Save EPIC-specific subsets if the flag column is present ---
     if 'EPIC_FLAG' in medonc_output.columns:
-        save_epic_subsets(medonc_output, parquet_gzip_dir)
+        save_epic_subsets(medonc_output, save_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -393,13 +388,21 @@ def merge_clean_notes(parquet_gzip_dir, file_part_max_observations, file_part_ma
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("parquet_gzip_dir", help="directory of the parquet gzip files", type=str)
-    parser.add_argument("file_part_max_observations", help="maximum file part number for observations", type=int)
-    parser.add_argument("file_part_max_clinical", help="maximum file part number for clinical", type=int)
+    parser.add_argument("save_dir", help="output directory", type=str)
+    parser.add_argument(
+        "obs_notes_dir",
+        help="directory containing processed_observation_notes.parquet.gzip and processed_pe_dvt_imaging_report.parquet.gzip",
+        type=str,
+    )
+    parser.add_argument(
+        "clinic_notes_dir",
+        help="directory containing processed_clinic_notes.parquet.gzip",
+        type=str,
+    )
     args = parser.parse_args()
 
     merge_clean_notes(
-        args.parquet_gzip_dir,
-        args.file_part_max_observations,
-        args.file_part_max_clinical,
+        args.save_dir,
+        args.obs_notes_dir,
+        args.clinic_notes_dir,
     )

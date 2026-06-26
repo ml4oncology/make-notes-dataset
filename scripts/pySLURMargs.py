@@ -21,8 +21,8 @@ condaEnv = sys.argv[3]
 nGPU = sys.argv[4]
 run_time = sys.argv[5]
 partition = sys.argv[6]
-nCPU = sys.argv[7] if len(sys.argv) > 7 and not sys.argv[7].startswith('/') else '1'
-mcmd = sys.argv[8:] if len(sys.argv) > 8 and not sys.argv[7].startswith('/') else sys.argv[7:]
+nCPU = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7].isdigit() else '1'
+mcmd = sys.argv[8:] if len(sys.argv) > 7 and sys.argv[7].isdigit() else sys.argv[7:]
 
 os.environ['PATH'] = '/usr/local/slurm/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/cluster/home/' + userName + '/.local/bin:/cluster/home/' + userName + '/bin'
 
