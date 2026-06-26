@@ -14,6 +14,7 @@ authors = [
 dependencies = [
     "pandas",
     "numpy",
+    "polars-lts-cpu==1.30.0",
     # Uncomment if actually still used:
     # "ml_common @ git+https://github.com/ml4oncology/ml-common.git"
 ]
