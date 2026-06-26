@@ -1,9 +1,11 @@
 # make_notes_dataset
 
-> Generate clinical notes dataset from EMR data.
+> Generate clinical notes and imaging reports dataset from EMR data.
 
-Python and bash scripts to process the clinical notes data set extracted by CDI into a more usable form.
+Python and bash scripts to process the unstructured free-text data set extracted by Cancer Digital Intelligence @ UHN into a more user-friendly form. The resulting data set has columns such as medical record number, note type, visit date, note, physician name, procedure type, etc.
 
+
+Author: Wayne Uy, PhD
 
 ## Notebook description
 
@@ -38,6 +40,35 @@ The available data pull dates are 2024-06-04 and 2025-01-08. Run `scripts/extrac
 ./scripts/extract/extract_zip.sh 2025-01-08
 ```
 
+The last updated date column must also be extracted from the JSON files. For a given data pull date, run:
+
+```bash
+./scripts/extract/build_last_updated.sh <data_pull_date> observation
+./scripts/extract/build_last_updated.sh <data_pull_date> clinic
+```
+
+This date column will be used as a filler for unavailable visit dates.
+
+## Notes pipeline
+
+The unstructured data resides in 2 directory types, ```observation``` and ```clinic notes``` directory. Both of these directories contain notes despite the name.
+
+The consultation notes reside in both directories while imaging reports only resides in the ```observation``` directory. For a given data pull date, run:
+
+```bash
+./scripts/notes_pipeline/process_notes.sh <data_pull_date> observation
+./scripts/notes_pipeline/process_notes.sh <data_pull_date> clinic
+```
+
+Make sure that you request a high memory node as the above pipeline aggregates multiple parquet files to build a unified parquet file for consultation notes in ```observation``` directory, a unified parquet file for consultation notes in ```clinic notes``` directory, and a unified parquet files for imaging reports.
+
+Then, run the following:
+
+```bash
+./scripts/notes_pipeline/merge_clean_notes.sh <data_pull_date>
+```
+
+to aggregate and clean the consultation notes from both directory types and to clean the imaging reports.
 
 ## De-identification
 
