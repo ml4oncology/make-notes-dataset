@@ -4,10 +4,14 @@ import json
 import argparse
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from make_notes_dataset.notes_pipeline.constants import PROCEDURE_NAMES_OF_INTEREST_EPR
+from make_notes_dataset.notes_pipeline.constants import PROCEDURE_NAMES_OF_INTEREST_EPR, IMAGING_PROCEDURE_NAMES
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+def _normalize_proc_name(name):
+    """Lowercase a procedure name and strip leading/trailing whitespace."""
+    return str(name).strip().lower()
 
 def get_last_updated_obs_notes(jsonDir, filePartNum, filename, procNames):
     """
@@ -29,7 +33,7 @@ def get_last_updated_obs_notes(jsonDir, filePartNum, filename, procNames):
     # tabulate patient id, obs id, last updated
     
     # procedure names of interest
-    procNames = [x.lower() for x in procNames]
+    procNames = [_normalize_proc_name(x) for x in procNames]
 
     patientList = []
     obsIDList = []
@@ -38,7 +42,7 @@ def get_last_updated_obs_notes(jsonDir, filePartNum, filename, procNames):
     for idx in range(len(data)):
         nObs = len(data[idx]['Observations'])
         for jdx in range(nObs):
-            if str(data[idx]['Observations'][jdx]['ProcName']).lower() in procNames:
+            if _normalize_proc_name(data[idx]['Observations'][jdx]['ProcName']) in procNames:
                 patientList.append(data[idx]['PATIENT_RESEARCH_ID'])
                 obsIDList.append(data[idx]['Observations'][jdx]['Observation']['_id'])
                 lastUpdatedList.append(data[idx]['Observations'][jdx]['Observation']['meta']['lastUpdated'])
@@ -66,6 +70,9 @@ def get_last_updated_clinic_ci_notes(jsonDir, filePartNum, filename, procNames):
 
     # tabulate patient id, obs id, last updated
 
+    # procedure names of interest
+    procNames = [_normalize_proc_name(x) for x in procNames]
+
     patientList = []
     clinicIDList = []
     lastUpdatedList = []
@@ -73,7 +80,7 @@ def get_last_updated_clinic_ci_notes(jsonDir, filePartNum, filename, procNames):
     for idx in range(len(data)):
         nObs = len(data[idx]['ClinicNotes'])
         for jdx in range(nObs):
-            if str(data[idx]['ClinicNotes'][jdx]['ClinicNote']['code']['text']) in procNames:
+            if _normalize_proc_name(data[idx]['ClinicNotes'][jdx]['ClinicNote']['code']['text']) in procNames:
                 patientList.append(data[idx]['PATIENT_RESEARCH_ID'])
                 clinicIDList.append(data[idx]['ClinicNotes'][jdx]['ClinicNote']['_id'])
                 lastUpdatedList.append(data[idx]['ClinicNotes'][jdx]['ClinicNote']['meta']['lastUpdated'])
@@ -115,7 +122,7 @@ def build_last_updated_all_parts(
                    which on a dedicated HPC node gives you all available cores.
                    Cap it (e.g. n_workers=32) if your sysadmin has limits.
     """
-    proc_names = PROCEDURE_NAMES_OF_INTEREST_EPR
+    proc_names = PROCEDURE_NAMES_OF_INTEREST_EPR + IMAGING_PROCEDURE_NAMES
     args_list = [
         (json_dir, i, file_name_template, clinic_notes_dir, proc_names)
         for i in range(upper_limit + 1)
