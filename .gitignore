@@ -54,3 +54,6 @@ MANIFEST
 .python-version
 
 ._*
+
+# Local environment config
+.env

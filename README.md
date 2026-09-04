@@ -7,6 +7,20 @@ Python and bash scripts to process the unstructured free-text data set extracted
 
 Author: Wayne Uy, PhD
 
+## Setup and configuration
+
+The bash scripts in `scripts/` read all cluster paths from a local `.env` file, keeping real file paths out of version control.
+
+1. Copy the template and edit it:
+
+```bash
+cp .env.example .env
+```
+
+2. Fill in the values in `.env`: your SLURM username, conda Python interpreter, the raw and processed data roots, the DeID container/model/config paths, and the MRN map directory.
+
+`.env` is gitignored, while `.env.example` is safe to commit. Scripts refuse to run if `.env` is missing, so complete this step before executing any pipeline script.
+
 ## Notebook description
 
 This is a brief description of the notebooks in this repository.

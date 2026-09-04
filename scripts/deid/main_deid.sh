@@ -1,4 +1,14 @@
 #!/bin/bash
+# Load paths from .env (gitignored; see .env.example)
+_env_file="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.env"
+if [[ ! -f "$_env_file" ]]; then
+    echo "Error: $_env_file not found. Copy .env.example to .env." >&2
+    exit 1
+fi
+set -a
+source "$_env_file"
+set +a
+
 set -e
 
 # Input variables
@@ -12,18 +22,18 @@ data_pull_date="$1"
 
 if [[ $data_pull_date == "2024-06-04" ]]; then
   # old pull
-  data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2024-06-04
   df_name=merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip
 
 elif [[ $data_pull_date == "2025-01-08" ]]; then
   # new pull
-  data_dir=/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/data_pull_2025-01-08
   df_name=merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip
 
 else
     echo "Invalid data_pull_date: $data_pull_date"
     exit 1
 fi
+
+data_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}"
 
 chunk_size=500
 

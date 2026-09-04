@@ -1,8 +1,17 @@
 #!/bin/bash
+# Load paths from .env (gitignored; see .env.example)
+_env_file="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.env"
+if [[ ! -f "$_env_file" ]]; then
+    echo "Error: $_env_file not found. Copy .env.example to .env." >&2
+    exit 1
+fi
+set -a
+source "$_env_file"
+set +a
 
-userName="t127556uhn"
+userName="$CLUSTER_USERNAME"
 memory=64
-condaEnv="~/miniforge3/envs/OncoTRAIL/bin/python"
+condaEnv="$CONDA_PYTHON"
 nGPU=0
 run_time="0-04:00:00"
 partition="veryhimem"
@@ -23,15 +32,15 @@ dir_type="$2"
 
 case "$dir_type" in
     observation)
-        data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/observation_parquet"
-        save_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/${data_pull_date}/obs_notes_parts"
-        last_updated_csv_path="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/last_updated_observation.csv"
+        data_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/observation_parquet"
+        save_dir="${PROCESSED_DATA_BASE}/${data_pull_date}/obs_notes_parts"
+        last_updated_csv_path="${RAW_DATA_BASE}/data_pull_${data_pull_date}/last_updated_observation.csv"
         clinic_notes=0
         ;;
     clinic)
-        data_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/clinic_notes_parquet"
-        save_dir="/cluster/projects/gliugroup/2BLAST/data/processed/clinical_notes/${data_pull_date}/clinic_notes_parts"
-        last_updated_csv_path="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/last_updated_clinic.csv"
+        data_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/clinic_notes_parquet"
+        save_dir="${PROCESSED_DATA_BASE}/${data_pull_date}/clinic_notes_parts"
+        last_updated_csv_path="${RAW_DATA_BASE}/data_pull_${data_pull_date}/last_updated_clinic.csv"
         clinic_notes=1
         ;;
     *)
@@ -43,7 +52,7 @@ esac
 # Determine upper_limit and file_name from data_pull_date.
 case "$data_pull_date" in
     "2025-01-08")
-        mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part5.csv"
+        mrn_file="${MRN_MAP_DIR}/mrn_map_2Blast_part5.csv"
         case "$dir_type" in
             observation) 
                 file_glob="2Blast_part5_*_observations.parquet.gzip" 
@@ -54,7 +63,7 @@ case "$data_pull_date" in
         esac
         ;;
     "2024-06-04")
-        mrn_file="/cluster/home/t127556uhn/misc/mrn_map_2Blast_part4.csv"
+        mrn_file="${MRN_MAP_DIR}/mrn_map_2Blast_part4.csv"
         case "$dir_type" in
             observation)  
                 file_glob="2Blast_part4_*_num_results_with_status_dates.parquet.gzip"

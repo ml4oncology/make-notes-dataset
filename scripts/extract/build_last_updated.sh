@@ -1,8 +1,17 @@
 #!/bin/bash
+# Load paths from .env (gitignored; see .env.example)
+_env_file="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.env"
+if [[ ! -f "$_env_file" ]]; then
+    echo "Error: $_env_file not found. Copy .env.example to .env." >&2
+    exit 1
+fi
+set -a
+source "$_env_file"
+set +a
 
-userName="t127556uhn"
+userName="$CLUSTER_USERNAME"
 memory=16
-condaEnv="~/miniforge3/envs/OncoTRAIL/bin/python"
+condaEnv="$CONDA_PYTHON"
 nGPU=0
 run_time="0-04:00:00"
 partition="all"
@@ -21,15 +30,15 @@ fi
 data_pull_date="$1"
 dir_type="$2"
 
-save_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}"
+save_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}"
 
 case "$dir_type" in
     observation)
-        json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/observation_json"
+        json_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/observation_json"
         clinic_notes=0
         ;;
     clinic)
-        json_dir="/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_${data_pull_date}/clinic_notes_json"
+        json_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/clinic_notes_json"
         clinic_notes=1
         ;;
     *)

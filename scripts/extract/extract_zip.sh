@@ -1,9 +1,19 @@
 #!/bin/bash
+# Load paths from .env (gitignored; see .env.example)
+_env_file="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.env"
+if [[ ! -f "$_env_file" ]]; then
+    echo "Error: $_env_file not found. Copy .env.example to .env." >&2
+    exit 1
+fi
+set -a
+source "$_env_file"
+set +a
+
 export PATH=$PATH:$(pwd)
 
-userName="t127556uhn"
+userName="$CLUSTER_USERNAME"
 memory=16
-condaEnv="~/miniforge3/envs/OncoTRAIL/bin/python"
+condaEnv="$CONDA_PYTHON"
 nGPU=0
 run_time="0-03:00:00"
 partition="all"
@@ -11,11 +21,8 @@ partition="all"
 # Determine data directory based on pull date
 data_pull_date="$1"
 
-if [[ $data_pull_date == "2024-06-04" ]]; then
-    data_dir=/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2024-06-04
-elif [[ $data_pull_date == "2025-01-08" ]]; then
-    data_dir=/cluster/projects/gliugroup/2BLAST/data/raw/data_pull_2025-01-08
-else
+data_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}"
+if [[ $data_pull_date != "2024-06-04" && $data_pull_date != "2025-01-08" ]]; then
     echo "Invalid data_pull_date: $data_pull_date. Use '2024-06-04' or '2025-01-08'"
     exit 1
 fi
