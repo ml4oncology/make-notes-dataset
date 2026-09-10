@@ -195,6 +195,8 @@ def resolve_imaging_visit_date(img_df):
     back to the last_updated date (time portion dropped).
     """
     mask_null_visit = img_df['visit_date'].isna()
+    tot_imaging = len(img_df)
+    n_null_visit = int(mask_null_visit.sum())
 
     # Source 1: date embedded in the 'REPORT (...)' header of the note
     img_header_date = (
@@ -204,10 +206,22 @@ def resolve_imaging_visit_date(img_df):
     img_header_date = pd.to_datetime(
         img_header_date, utc=True, errors='coerce'
     ).dt.date
-    n_header_filled = img_header_date.notna().sum()
+    n_header_filled = int(img_header_date.notna().sum())
     img_df.loc[mask_null_visit, 'visit_date'] = img_header_date
+    n_header_unresolved = int(mask_null_visit.sum()) - n_header_filled
 
-    logger.info(f'Imaging visit dates filled from report header: {n_header_filled}')
+    pct_header_of_all = 100 * n_header_filled / tot_imaging if tot_imaging else 0.0
+    pct_header_of_null = 100 * n_header_filled / n_null_visit if n_null_visit else 0.0
+    logger.info(
+        f'Imaging visit dates filled from report header: {n_header_filled} '
+        f'({pct_header_of_all:.1f}% of all imaging reports; '
+        f'{pct_header_of_null:.1f}% of reports with no visit date)'
+    )
+    if n_header_unresolved > 0:
+        logger.info(
+            f'Header extraction attempted but unresolved for {n_header_unresolved} '
+            f'of {int(mask_null_visit.sum())} reports with no visit date'
+        )
 
     # Source 2: last_updated timestamp as a final fallback
     if 'last_updated' in img_df.columns:
@@ -219,9 +233,20 @@ def resolve_imaging_visit_date(img_df):
         n_last_updated_filled = last_updated_date.notna().sum()
         img_df.loc[mask_still_null, 'visit_date'] = last_updated_date
 
-        logger.info(
-            f'Imaging visit dates filled from last_updated: {n_last_updated_filled}'
+        pct_last_updated_of_all = (
+            100 * n_last_updated_filled / tot_imaging if tot_imaging else 0.0
         )
+        pct_last_updated_of_null = (
+            100 * n_last_updated_filled / n_null_visit if n_null_visit else 0.0
+        )
+        logger.info(
+            f'Imaging visit dates filled from last_updated: {n_last_updated_filled} '
+            f'({pct_last_updated_of_all:.1f}% of all imaging reports; '
+            f'{pct_last_updated_of_null:.1f}% of reports with no visit date)'
+        )
+
+    n_still_null = int(img_df['visit_date'].isna().sum())
+    logger.info(f'Imaging reports still without a visit date: {n_still_null}')
 
     return img_df
 
