@@ -279,7 +279,7 @@ def filter_and_pivot_metadata(
     if metadata_of_interest is None:
         metadata_of_interest = NOTES_METADATA + OTHER_METADATA
 
-    df_meta = df.loc[df["meta_data"].isin(metadata_of_interest)].copy()
+    df_meta = df.loc[df["meta_data"].str.strip().isin(metadata_of_interest)].copy()
 
     if "Observations.ProcCode" in df_meta.columns:
         try:
@@ -355,8 +355,8 @@ def split_epic_epr_pl(lf: pl.LazyFrame) -> tuple[pl.LazyFrame, pl.LazyFrame]:
 def deduplicate_clinic_metadata(df: pd.DataFrame) -> pd.DataFrame:
     """For clinic notes, de-duplicate physician-level metadata rows and merge
     text values that share the same metadata category."""
-    df_other = df.loc[~df["meta_data"].str.lower().isin(OTHER_METADATA)].copy()
-    df_phys = df.loc[df["meta_data"].str.lower().isin(OTHER_METADATA)].copy()
+    df_other = df.loc[~df["meta_data"].str.lower().str.strip().isin(OTHER_METADATA)].copy()
+    df_phys = df.loc[df["meta_data"].str.lower().str.strip().isin(OTHER_METADATA)].copy()
     df_phys.drop_duplicates(
         subset=["PATIENT_RESEARCH_ID", "clinical_note_id", "meta_data", "text_data"],
         inplace=True,
@@ -469,7 +469,7 @@ def drop_empty_note_rows(
 def process_epic_notes(epic_notes_raw_df: pd.DataFrame) -> pd.DataFrame:
     """Filter, enrich, and clean the EPIC notes dataframe."""
     epic_notes_raw_df = epic_notes_raw_df.loc[
-        epic_notes_raw_df['code_text'].isin(PROCEDURE_NAMES_OF_INTEREST_EPIC)
+        epic_notes_raw_df['code_text'].str.strip().isin(PROCEDURE_NAMES_OF_INTEREST_EPIC)
     ]
 
     # Extract and clean author type
@@ -558,7 +558,7 @@ def process_epic_notes(epic_notes_raw_df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def combine_text_data_pl(
-    lf: pl.LazyFrame, group_by_cols: list[str], meta_data_col: str
+    lf: pl.LazyFrame, group_by_cols: list[str], meta_data_col: str, sep: str = ""
 ) -> pl.LazyFrame:
     """Concatenate split text_data rows that share the same meta_data label.
 
@@ -576,7 +576,7 @@ def combine_text_data_pl(
         if c not in group_by_cols + ["text_data"]
     ]
     agg_exprs = (
-        [pl.col("text_data").str.concat("").alias("text_data")]
+        [pl.col("text_data").str.concat(sep).alias("text_data")]
         + [pl.col(c).first().alias(c) for c in non_agg_cols]
     )
     lf_target = lf_target.group_by(group_by_cols, maintain_order=True).agg(agg_exprs)
@@ -632,7 +632,7 @@ def process_clinical_notes_pipeline(
             lf, epic_lf = split_epic_epr_pl(lf)
 
     # ---- Filter to EPR procedures of interest ----
-    lf = lf.filter(pl.col(proc_name_col).is_in(PROCEDURE_NAMES_OF_INTEREST_EPR))
+    lf = lf.filter(pl.col(proc_name_col).str.strip_chars().is_in(PROCEDURE_NAMES_OF_INTEREST_EPR))
 
     # ---- Build metadata maps ----
     map_notes_meta, map_other_meta = build_metadata_maps()
@@ -713,6 +713,7 @@ def process_imaging_reports_pipeline(
     lf: pl.LazyFrame,
     visit_id_col: str,
     save_dir: str,
+    df_last_updated: pd.DataFrame
 ) -> None:
     """Polars-accelerated imaging reports pipeline."""
     logger.info("Imaging reports pipeline ...")
@@ -727,12 +728,15 @@ def process_imaging_reports_pipeline(
 
     # ---- Build metadata columns ----
     lf = create_metadata_pl(lf)
+    lf = lf.with_columns(pl.col("meta_data").fill_null("imaging_note"))
 
     # ---- Normalize metadata labels ----
     imaging_meta_normalized = [e.replace(" ", "_") for e in IMAGING_METADATA]
 
     lf = (
-        lf.with_columns(pl.col("meta_data").str.replace_all(" ", "_"))
+        lf.with_columns(
+            pl.col("meta_data").str.strip_chars().str.replace_all(" ", "_")
+        )
         .filter(pl.col("meta_data").is_in(imaging_meta_normalized))
         .with_columns(
             pl.when(pl.col("meta_data").is_in(["narrative", "impression"]))
@@ -748,6 +752,7 @@ def process_imaging_reports_pipeline(
     group_cols = ["mrn", "observation_id"]
     lf = combine_text_data_pl(lf, group_cols, "narrative_impression")
     lf = combine_text_data_pl(lf, group_cols, "view_area")
+    lf = combine_text_data_pl(lf, group_cols, "imaging_note", sep="\n")
 
     # ---- Collect to pandas for pivot ----
     logger.info("Collecting imaging data to pandas ...")
@@ -772,6 +777,16 @@ def process_imaging_reports_pipeline(
 
     # ---- Date correction ----
     pivot_df = apply_date_corrections(pivot_df, clinic_notes_dir=False)
+
+    # ---- Last-updated timestamps (aggregated across all parts) ----
+    logger.info("Adding last_updated column to imaging reports ...")
+
+    if not df_last_updated.empty:
+        pivot_df = pivot_df.merge(
+            df_last_updated,
+            how="left",
+            on=["PATIENT_RESEARCH_ID", visit_id_col],
+        )
 
     # ---- Drop newline-only rows ----
     pivot_df = drop_empty_note_rows(pivot_df, note_col="imaging_report")
@@ -803,7 +818,8 @@ def process_notes(
       - process_clinical_notes_pipeline: consultation/clinic notes saved per
         the usual observation/clinic-notes filenames.
       - process_imaging_reports_pipeline: PE/DVT imaging reports saved
-        separately (observation directory only).
+        separately (observation directory only), with the last-updated
+        timestamps merged in for later date-resolution in merge_clean_notes.
 
     Args:
         data_dir           : directory of raw parquet files
@@ -843,6 +859,7 @@ def process_notes(
             lf=lf_img,
             visit_id_col=visit_id_col_img,
             save_dir=save_dir,
+            df_last_updated=df_last_updated,
         )
 
 

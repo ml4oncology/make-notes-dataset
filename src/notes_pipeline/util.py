@@ -196,6 +196,34 @@ def helper_date_from_note(x, date_descrip):
     except:
         return None    
 
+def extract_date_from_imaging_report(text):
+    """
+    Extract the date from an imaging report header of the exact form
+    'REPORT (... YYYY/MM/DD)' at the top of the note.
+
+    The header is anchored to the top of the report, tolerating leading
+    newlines/blank lines/whitespace. Some text between the parentheses
+    (e.g. 'VERIFIED', 'FINAL') is allowed before the date. This function
+    is intentionally narrow: only this header pattern is matched.
+
+    text: A string representing the imaging report
+
+    Returns the date as a 'YYYY-MM-DD' string, or None if no match.
+    """
+    if not isinstance(text, str):
+        return None
+
+    pattern = r'^\s*REPORT\s*\(([^()]*?)(\d{4})/(\d{1,2})/(\d{1,2})\s*\)'
+    match = re.search(pattern, text, re.MULTILINE)
+    if match:
+        date_str = f'{match.group(2)}-{int(match.group(3)):02d}-{int(match.group(4)):02d}'
+        parsed = pd.to_datetime(date_str, errors='coerce')
+        if not pd.isna(parsed):
+            return date_str
+
+    return None
+
+
 def extract_job_num(x):
     """
     Extract job number from the note if possible. This is heuristic 
