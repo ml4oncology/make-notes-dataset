@@ -558,7 +558,7 @@ def process_epic_notes(epic_notes_raw_df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def combine_text_data_pl(
-    lf: pl.LazyFrame, group_by_cols: list[str], meta_data_col: str
+    lf: pl.LazyFrame, group_by_cols: list[str], meta_data_col: str, sep: str = ""
 ) -> pl.LazyFrame:
     """Concatenate split text_data rows that share the same meta_data label.
 
@@ -576,7 +576,7 @@ def combine_text_data_pl(
         if c not in group_by_cols + ["text_data"]
     ]
     agg_exprs = (
-        [pl.col("text_data").str.concat("").alias("text_data")]
+        [pl.col("text_data").str.concat(sep).alias("text_data")]
         + [pl.col(c).first().alias(c) for c in non_agg_cols]
     )
     lf_target = lf_target.group_by(group_by_cols, maintain_order=True).agg(agg_exprs)
@@ -728,6 +728,7 @@ def process_imaging_reports_pipeline(
 
     # ---- Build metadata columns ----
     lf = create_metadata_pl(lf)
+    lf = lf.with_columns(pl.col("meta_data").fill_null("imaging_report"))
 
     # ---- Normalize metadata labels ----
     imaging_meta_normalized = [e.replace(" ", "_") for e in IMAGING_METADATA]
@@ -751,6 +752,7 @@ def process_imaging_reports_pipeline(
     group_cols = ["mrn", "observation_id"]
     lf = combine_text_data_pl(lf, group_cols, "narrative_impression")
     lf = combine_text_data_pl(lf, group_cols, "view_area")
+    lf = combine_text_data_pl(lf, group_cols, "imaging_report", sep="\n")
 
     # ---- Collect to pandas for pivot ----
     logger.info("Collecting imaging data to pandas ...")
