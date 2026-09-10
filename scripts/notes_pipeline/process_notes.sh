@@ -18,28 +18,31 @@ partition="veryhimem"
 nCPU=1
 
 # ---------------------------------------------------------------------------
-# Usage: process_notes.sh <data_pull_date> <dir_type>
-#   dir_type  -- "observation" or "clinic"
+# Usage: process_notes.sh <data_pull_date> <dir_type> [<data_label>]
+#   dir_type   -- "observation" or "clinic"
+#   data_label -- optional label appended to the save directory base
+#                 (e.g. v2 -> .../data_pull_<date>_v2/...)
 # ---------------------------------------------------------------------------
-if [[ $# -ne 2 ]]; then
-    echo "Usage: $0 <data_pull_date> <dir_type>"
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+    echo "Usage: $0 <data_pull_date> <dir_type> [<data_label>]"
     echo "  dir_type: observation | clinic"
     exit 1
 fi
 
 data_pull_date="$1"
 dir_type="$2"
+data_label="$3"
 
 case "$dir_type" in
     observation)
         data_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/observation_parquet"
-        save_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}/obs_notes_parts"
+        save_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}${data_label:+_${data_label}}/obs_notes_parts"
         last_updated_csv_path="${RAW_DATA_BASE}/data_pull_${data_pull_date}/last_updated_observation.csv"
         clinic_notes=0
         ;;
     clinic)
         data_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/clinic_notes_parquet"
-        save_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}/clinic_notes_parts"
+        save_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}${data_label:+_${data_label}}/clinic_notes_parts"
         last_updated_csv_path="${RAW_DATA_BASE}/data_pull_${data_pull_date}/last_updated_clinic.csv"
         clinic_notes=1
         ;;
