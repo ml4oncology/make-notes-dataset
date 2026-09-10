@@ -118,6 +118,9 @@ def load_imaging_reports(obs_notes_dir):
     )
     img_df = img_df[BASE_COLS_TO_KEEP_IMAGING_REPORTS].copy()
 
+    if 'imaging_report' in img_df.columns:
+        img_df['imaging_report'] = img_df['imaging_report'].str.strip()
+
     if 'visit_date' in img_df.columns:
         img_df['visit_date'] = pd.to_datetime(img_df['visit_date'], utc=True)
 
