@@ -728,7 +728,7 @@ def process_imaging_reports_pipeline(
 
     # ---- Build metadata columns ----
     lf = create_metadata_pl(lf)
-    lf = lf.with_columns(pl.col("meta_data").fill_null("imaging_report"))
+    lf = lf.with_columns(pl.col("meta_data").fill_null("imaging_note"))
 
     # ---- Normalize metadata labels ----
     imaging_meta_normalized = [e.replace(" ", "_") for e in IMAGING_METADATA]
@@ -752,7 +752,7 @@ def process_imaging_reports_pipeline(
     group_cols = ["mrn", "observation_id"]
     lf = combine_text_data_pl(lf, group_cols, "narrative_impression")
     lf = combine_text_data_pl(lf, group_cols, "view_area")
-    lf = combine_text_data_pl(lf, group_cols, "imaging_report", sep="\n")
+    lf = combine_text_data_pl(lf, group_cols, "imaging_note", sep="\n")
 
     # ---- Collect to pandas for pivot ----
     logger.info("Collecting imaging data to pandas ...")

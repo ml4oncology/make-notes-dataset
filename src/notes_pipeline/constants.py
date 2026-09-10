@@ -374,7 +374,7 @@ IMAGING_METADATA = [
     'narrative',
     'impression',
     'view',
-    'imaging_report',
+    'imaging_note',
 ]
 
 IMAGING_NOTES_METADATA = [
@@ -384,5 +384,5 @@ IMAGING_NOTES_METADATA = [
     'carotid_report',
     'textualreport',
     'narrative_impression',
-    'imaging_report',
+    'imaging_note',
 ]
