@@ -327,14 +327,14 @@ def filter_medonc_notes(df, unique_aliases):
                 df['Cosigner'].isin(unique_aliases) &
                 (
                     (df['EPIC_FLAG'] == 1) |
-                    df['Observations.ProcName'].isin(ANCHORED_PROC_NAMES)
+                    df['Observations.ProcName'].str.strip().isin(ANCHORED_PROC_NAMES)
                 )
             )
         )
     else:
         mask = (
             df['processed_physician_name'].isin(unique_aliases) &
-            df['Observations.ProcName'].isin(ANCHORED_PROC_NAMES)
+            df['Observations.ProcName'].str.strip().isin(ANCHORED_PROC_NAMES)
         )
     return df.loc[mask].copy()
 
