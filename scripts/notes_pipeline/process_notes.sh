@@ -33,13 +33,13 @@ dir_type="$2"
 case "$dir_type" in
     observation)
         data_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/observation_parquet"
-        save_dir="${PROCESSED_DATA_BASE}/${data_pull_date}/obs_notes_parts"
+        save_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}/obs_notes_parts"
         last_updated_csv_path="${RAW_DATA_BASE}/data_pull_${data_pull_date}/last_updated_observation.csv"
         clinic_notes=0
         ;;
     clinic)
         data_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/clinic_notes_parquet"
-        save_dir="${PROCESSED_DATA_BASE}/${data_pull_date}/clinic_notes_parts"
+        save_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}/clinic_notes_parts"
         last_updated_csv_path="${RAW_DATA_BASE}/data_pull_${data_pull_date}/last_updated_clinic.csv"
         clinic_notes=1
         ;;
