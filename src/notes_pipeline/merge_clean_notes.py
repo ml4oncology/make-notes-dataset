@@ -6,6 +6,7 @@ import logging
 import pandas as pd
 
 from util import (extract_date_from_note,
+                  extract_date_from_imaging_report,
                   extract_job_num,
                   clean_clinical_note)
 
@@ -53,7 +54,8 @@ BASE_COLS_TO_KEEP_IMAGING_REPORTS = [
     'imaging_report',
     'visit_date',
     'verified_by',
-    'read_by'
+    'read_by',
+    'last_updated',
 ]
 
 
@@ -106,13 +108,27 @@ def load_imaging_reports(obs_notes_dir):
     """Load the single processed imaging report file.
 
     process_notes.py already merges all parts and saves one file.
-    visit_date is cast to UTC; there is no last_updated column for imaging.
+    visit_date and last_updated are cast to UTC here. When visit_date is
+    null, it is resolved from the 'REPORT (... YYYY/MM/DD)' header in the
+    imaging report, falling back to the last_updated date.
     """
     img_df = pd.read_parquet(
         os.path.join(obs_notes_dir, 'processed_pe_dvt_imaging_report.parquet.gzip'),
         engine='pyarrow', use_nullable_dtypes=True,
     )
-    return img_df[BASE_COLS_TO_KEEP_IMAGING_REPORTS].copy()
+    img_df = img_df[BASE_COLS_TO_KEEP_IMAGING_REPORTS].copy()
+
+    if 'visit_date' in img_df.columns:
+        img_df['visit_date'] = pd.to_datetime(img_df['visit_date'], utc=True)
+
+    if 'last_updated' in img_df.columns:
+        img_df['last_updated'] = pd.to_datetime(
+            img_df['last_updated'], utc=True, errors='coerce'
+        )
+
+    img_df = resolve_imaging_visit_date(img_df)
+
+    return img_df
 
 # ---------------------------------------------------------------------------
 # EPIC / EPR splitting
@@ -166,6 +182,45 @@ def resolve_processed_date(notes_df):
         "There is a nan date in the processed dates."
 
     return notes_df
+
+
+def resolve_imaging_visit_date(img_df):
+    """Fill null 'visit_date' values for imaging reports.
+
+    For rows without a visit date, first try the 'REPORT (... YYYY/MM/DD)'
+    header at the top of the imaging report; for any remaining nulls, fall
+    back to the last_updated date (time portion dropped).
+    """
+    mask_null_visit = img_df['visit_date'].isna()
+
+    # Source 1: date embedded in the 'REPORT (...)' header of the note
+    img_header_date = (
+        img_df.loc[mask_null_visit, 'imaging_report']
+        .apply(extract_date_from_imaging_report)
+    )
+    img_header_date = pd.to_datetime(
+        img_header_date, utc=True, errors='coerce'
+    ).dt.date
+    n_header_filled = img_header_date.notna().sum()
+    img_df.loc[mask_null_visit, 'visit_date'] = img_header_date
+
+    logger.info(f'Imaging visit dates filled from report header: {n_header_filled}')
+
+    # Source 2: last_updated timestamp as a final fallback
+    if 'last_updated' in img_df.columns:
+        mask_still_null = img_df['visit_date'].isna()
+        last_updated_date = (
+            pd.to_datetime(img_df.loc[mask_still_null, 'last_updated'], utc=True)
+            .dt.date
+        )
+        n_last_updated_filled = last_updated_date.notna().sum()
+        img_df.loc[mask_still_null, 'visit_date'] = last_updated_date
+
+        logger.info(
+            f'Imaging visit dates filled from last_updated: {n_last_updated_filled}'
+        )
+
+    return img_df
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +396,7 @@ def merge_clean_notes(save_dir, obs_notes_dir, clinic_notes_dir):
     # --- Load and save pe/dvt imaging reports ---
     img_df = load_imaging_reports(obs_notes_dir)
     save_parquet(
-        img_df,
+        select_output_cols(img_df),
         os.path.join(save_dir, 'merged_pe_dvt_imaging_report.parquet.gzip'),
     )
 

@@ -713,6 +713,7 @@ def process_imaging_reports_pipeline(
     lf: pl.LazyFrame,
     visit_id_col: str,
     save_dir: str,
+    df_last_updated: pd.DataFrame
 ) -> None:
     """Polars-accelerated imaging reports pipeline."""
     logger.info("Imaging reports pipeline ...")
@@ -773,6 +774,16 @@ def process_imaging_reports_pipeline(
     # ---- Date correction ----
     pivot_df = apply_date_corrections(pivot_df, clinic_notes_dir=False)
 
+    # ---- Last-updated timestamps (aggregated across all parts) ----
+    logger.info("Adding last_updated column to imaging reports ...")
+
+    if not df_last_updated.empty:
+        pivot_df = pivot_df.merge(
+            df_last_updated,
+            how="left",
+            on=["PATIENT_RESEARCH_ID", visit_id_col],
+        )
+
     # ---- Drop newline-only rows ----
     pivot_df = drop_empty_note_rows(pivot_df, note_col="imaging_report")
 
@@ -803,7 +814,8 @@ def process_notes(
       - process_clinical_notes_pipeline: consultation/clinic notes saved per
         the usual observation/clinic-notes filenames.
       - process_imaging_reports_pipeline: PE/DVT imaging reports saved
-        separately (observation directory only).
+        separately (observation directory only), with the last-updated
+        timestamps merged in for later date-resolution in merge_clean_notes.
 
     Args:
         data_dir           : directory of raw parquet files
@@ -843,6 +855,7 @@ def process_notes(
             lf=lf_img,
             visit_id_col=visit_id_col_img,
             save_dir=save_dir,
+            df_last_updated=df_last_updated,
         )
 
 
