@@ -10,10 +10,10 @@ source "$_env_file"
 set +a
 
 userName="$CLUSTER_USERNAME"
-memory=64
+memory=512
 condaEnv="$CONDA_PYTHON"
 nGPU=0
-run_time="0-04:00:00"
+run_time="0-08:00:00"
 partition="veryhimem"
 nCPU=1
 
