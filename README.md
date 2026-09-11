@@ -67,10 +67,11 @@ This date column will be used as a filler for unavailable visit dates.
 
 The unstructured data resides in 2 directory types, ```observation``` and ```clinic notes``` directory. Both of these directories contain notes despite the name.
 
-The consultation notes reside in both directories while imaging reports only resides in the ```observation``` directory. For a given data pull date, run:
+The consultation notes reside in both directories while imaging reports only resides in the ```observation``` directory. There is a separate pipeline for processing imaging reports. For a given data pull date, run:
 
 ```bash
 ./scripts/notes_pipeline/process_notes.sh <data_pull_date> observation
+/scripts/notes_pipeline/process_notes.sh <data_pull_date> imaging
 ./scripts/notes_pipeline/process_notes.sh <data_pull_date> clinic
 ```
 
