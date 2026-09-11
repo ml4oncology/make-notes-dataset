@@ -94,14 +94,26 @@ def log_mem(stage: str) -> None:
 
 
 def configure_polars_memory() -> None:
-    """Enable polars disk spill so hash/group intermediates leave RAM."""
-    set_spill = getattr(pl.Config, "set_streaming_spill", None)
-    if set_spill is not None:
-        try:
-            set_spill(True)
-            logger.info("Polars streaming spill enabled")
-        except Exception:
-            pass
+    """Force the polars streaming engine so scan->filter->join->group-by
+    intermediates are processed in chunks and spill to disk instead of being
+    fully materialized in RAM.
+
+    Note: `pl.Config.set_streaming` / `set_streaming_spill` were removed in
+    newer polars; the streaming engine is now opted into via
+    `pl.Config.set_engine_affinity("streaming")` (and/or per-collect
+    `engine="streaming"`), with `set_streaming_chunk_size` bounding each chunk.
+    """
+    try:
+        pl.Config.set_engine_affinity("streaming")
+        logger.info("Polars streaming engine enabled")
+    except Exception as exc:  # pragma: no cover - config API drift guard
+        logger.warning(f"Could not enable polars streaming engine: {exc}")
+
+    try:
+        pl.Config.set_streaming_chunk_size(500_000)
+        logger.info("Polars streaming chunk size = 500,000 rows")
+    except Exception as exc:  # pragma: no cover - config API drift guard
+        logger.warning(f"Could not set polars streaming chunk size: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -478,7 +490,7 @@ def pivot_metadata_lf(
         .agg(pl.col("text_data").str.concat(sep).alias("text_data"))
     )
     pivot_df = (
-        agg_lf.collect()
+        agg_lf.collect(engine="streaming")
         .pivot(on="meta_data", index=group_cols, values="text_data", sort_columns=True)
         .to_pandas()
     )
@@ -965,18 +977,14 @@ def process_imaging_reports_pipeline(
 ) -> None:
     """Polars-accelerated imaging reports pipeline."""
     logger.info("Imaging reports pipeline ...")
-
-    # ---- Filter to imaging procedures ----
-    lf = lf.filter(
-        pl.col("Observations.ProcName")
-        .str.to_lowercase()
-        .str.strip_chars()
-        .is_in(IMAGING_PROCEDURE_NAMES)
-    )
+    # Note: rows are already filtered to the imaging procedures upstream in
+    # process_notes() (before the MRN join) for memory reasons.
+    log_mem("img start")
 
     # ---- Build metadata columns ----
     lf = create_metadata_pl(lf)
     lf = lf.with_columns(pl.col("meta_data").fill_null("imaging_note"))
+    log_mem("img meta cols")
 
     # ---- Normalize metadata labels ----
     imaging_meta_normalized = [e.replace(" ", "_") for e in IMAGING_METADATA]
@@ -995,12 +1003,16 @@ def process_imaging_reports_pipeline(
             .alias("meta_data")
         )
     )
+    log_mem("img meta normalize")
 
     # ---- Combine split rows for multi-line fields (polars) ----
     group_cols = ["mrn", "observation_id"]
     lf = combine_text_data_pl(lf, group_cols, "narrative_impression")
+    log_mem("img combine narrative_impression")
     lf = combine_text_data_pl(lf, group_cols, "view_area")
+    log_mem("img combine view_area")
     lf = combine_text_data_pl(lf, group_cols, "imaging_note", sep="\n")
+    log_mem("img combine imaging_note")
 
     # ---- Pivot + dedup (polars; only the small per-visit frame is materialized) ----
     all_imaging_meta = [
@@ -1012,10 +1024,13 @@ def process_imaging_reports_pipeline(
     pivot_df, group_cols = pivot_metadata_lf(
         lf, map_meta, metadata_of_interest=all_imaging_meta
     )
+    log_mem("img pivot")
     pivot_df = deduplicate_pivot_lf(pivot_df, group_cols, visit_id_col)
+    log_mem("img dedup")
 
     # ---- Aggregate into single imaging_report column ----
     pivot_df = aggregate_imaging_columns(pivot_df, IMAGING_NOTES_METADATA)
+    log_mem("img aggregate")
 
     # ---- Drop duplicates on imaging_report ----
     pivot_df.drop_duplicates(subset=["imaging_report"], inplace=True)
@@ -1045,6 +1060,7 @@ def process_imaging_reports_pipeline(
     out_path = os.path.join(save_dir, "processed_pe_dvt_imaging_report.parquet.gzip")
     pivot_df.to_parquet(out_path, compression="gzip", index=False)
     logger.info(f"Saved: {out_path}  ({len(pivot_df):,} rows)")
+    log_mem("img save")
 
 
 # ---------------------------------------------------------------------------
@@ -1078,13 +1094,42 @@ def process_notes(
     """
     os.makedirs(save_dir, exist_ok=True)
 
+    # Force the streaming engine (chunked processing + disk spill) before any
+    # query is executed.
+    configure_polars_memory()
+    log_mem("start")
+
     # ---- Shared polars steps ----
     is_clinic = note_type == "clinic"
     raw_columns = CLINIC_RAW_COLUMNS if is_clinic else OBSERVATION_RAW_COLUMNS
     lf = scan_raw_parquet(data_dir, file_glob, columns=raw_columns)
+    log_mem("scan+project")
+
+    # Filter to the note-type's procedures BEFORE the MRN join so the join and
+    # everything downstream only see matched rows (big memory/IO reduction).
+    # Predicates mirror the per-pipeline filters exactly for output parity.
+    if not is_clinic:
+        if note_type == "imaging":
+            lf = lf.filter(
+                pl.col("Observations.ProcName")
+                .str.to_lowercase()
+                .str.strip_chars()
+                .is_in(IMAGING_PROCEDURE_NAMES)
+            )
+        else:  # observation
+            lf = lf.filter(
+                pl.col("Observations.ProcName")
+                .str.strip_chars()
+                .is_in(PROCEDURE_NAMES_OF_INTEREST_EPR)
+            )
+    log_mem("note-type filter")
+
     lf = filter_valid_patient_ids_pl(lf)
+    log_mem("valid ids")
     lf, proc_name_col, visit_id_col = rename_columns_pl(lf, is_clinic)
+    log_mem("rename")
     lf = attach_mrn_pl(lf, mrn_file)
+    log_mem("mrn join")
 
     # ---- Imaging pipeline ----
     if note_type == "imaging":
