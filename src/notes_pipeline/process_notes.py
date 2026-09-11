@@ -78,6 +78,33 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Memory diagnostics + polars config
+# ---------------------------------------------------------------------------
+
+def log_mem(stage: str) -> None:
+    """Log peak resident set size (MB) to help identify memory hot spots."""
+    try:
+        import resource
+        # ru_maxrss is in KB on Linux and bytes on macOS
+        divisor = 1024.0 if sys.platform != "darwin" else 1024.0 * 1024.0
+        rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / divisor
+        logger.info(f"MEM [{stage}] peak RSS = {rss_mb:.1f} MB")
+    except (ImportError, AttributeError):
+        pass
+
+
+def configure_polars_memory() -> None:
+    """Enable polars disk spill so hash/group intermediates leave RAM."""
+    set_spill = getattr(pl.Config, "set_streaming_spill", None)
+    if set_spill is not None:
+        try:
+            set_spill(True)
+            logger.info("Polars streaming spill enabled")
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Text cleaning helpers  (unchanged — row-level Python UDFs)
 # ---------------------------------------------------------------------------
 
@@ -124,11 +151,50 @@ def split_metadata_col_clinic(note_text: str):
 # Polars helpers — I/O and basic filtering
 # ---------------------------------------------------------------------------
 
-def scan_raw_parquet(data_dir: str, file_glob: str) -> pl.LazyFrame:
+# Raw parquet columns consumed by each note-type pipeline (projection list).
+OBSERVATION_RAW_COLUMNS = [
+    "PATIENT_RESEARCH_ID",
+    "Observations.ProcCode",
+    "Observations.ProcName",
+    "Observations.Observation._id",
+    "Observations.OccurrenceDateTimeFromOrder",
+    "Observations.Observation.effectiveDateTime",
+    "Observations.Observation.component.code.text",
+    "Observations.Observation.component.code.coding.0.display",
+    "Observations.Observation.component.extension.2.url",
+    "Observations.Observation.component.valueString",
+    "Observations.Observation.component.extension.2.valueString",
+    "Observations.StatusFromOrder",
+    "Observations.Observation.basedOn.0.reference",
+    "Observations.Observation.encounter.reference",
+    "Observations.Observation.status",
+]
+
+CLINIC_RAW_COLUMNS = [
+    "PATIENT_RESEARCH_ID",
+    "ClinicNotes.ClinicNote.note.text",
+    "ClinicNotes.ClinicNote.date",
+    "ClinicNotes.ClinicNote.effectiveDateTime",
+    "ClinicNotes.ClinicNote._id",
+    "ClinicNotes.ClinicNote.code.text",
+    "ClinicNotes.ClinicNote.encounter.reference",
+    "ClinicNotes.ClinicNote.summary",
+]
+
+
+def scan_raw_parquet(
+    data_dir: str, file_glob: str, columns: list[str] | None = None
+) -> pl.LazyFrame:
     """Glob all matching parquet files and return a single LazyFrame.
 
     String 'None' values are replaced with a true null via a post-scan
     with_columns pass.
+
+    Args:
+        data_dir: directory containing the parquet parts
+        file_glob: glob pattern matching the parts
+        columns: optional whitelist of raw columns to read; projection is
+            pushed down so only these columns are decoded from parquet.
     """
     pattern = os.path.join(data_dir, file_glob)
     paths = sorted(glob.glob(pattern))
@@ -137,6 +203,17 @@ def scan_raw_parquet(data_dir: str, file_glob: str) -> pl.LazyFrame:
     logger.info(f"Scanning {len(paths)} parquet files from {data_dir}")
 
     lf = pl.scan_parquet(paths)
+
+    # Push down a column projection so only the columns the pipeline needs are
+    # decoded from parquet (largest raw-memory/IO reduction).
+    if columns:
+        schema = lf.collect_schema()
+        projected = [c for c in columns if c in schema.names()]
+        if not projected:
+            raise ValueError(
+                f"None of the requested projection columns exist in {pattern}"
+            )
+        lf = lf.select(projected)
 
     # Replace the string sentinel 'None' with a true null across String columns only.
     schema = lf.collect_schema()
@@ -339,6 +416,118 @@ def deduplicate_pivot(
 
 
 # ---------------------------------------------------------------------------
+# Pivot + dedup (polars — replacement for the pandas path above)
+# ---------------------------------------------------------------------------
+
+def pivot_metadata_lf(
+    lf: pl.LazyFrame,
+    map_meta: dict,
+    metadata_of_interest: list | None = None,
+    sep: str = " ",
+) -> tuple[pd.DataFrame, list[str]]:
+    """Polars replacement for ``filter_and_pivot_metadata``.
+
+    Keeps only the metadata labels of interest, maps raw labels to column-safe
+    names, joins repeated text per (visit, metadata) with ``sep`` (mirroring
+    the pandas ``" ".join(x)`` aggfunc) and pivots to one row per visit.
+
+    Returns (pivot_df, group_cols) where group_cols are the non-meta/text
+    columns used as the pivot index.
+    """
+    if metadata_of_interest is None:
+        metadata_of_interest = NOTES_METADATA + OTHER_METADATA
+
+    group_cols = [
+        c for c in lf.collect_schema().names() if c not in ["meta_data", "text_data"]
+    ]
+
+    lf = lf.filter(pl.col("meta_data").str.strip_chars().is_in(metadata_of_interest))
+
+    # Mirror the pandas ProcCode int-cast (whole-column try/except): on success
+    # the values are normalized to ints (so '001' and '1' group together); on
+    # any non-numeric value the column is left as its raw strings.
+    if "Observations.ProcCode" in lf.collect_schema().names():
+        try:
+            codes = lf.select("Observations.ProcCode").collect().to_series()
+            codes.cast(pl.Int64, strict=True)
+            lf = lf.with_columns(
+                pl.col("Observations.ProcCode").cast(pl.Int64, strict=True)
+            )
+        except pl.exceptions.InvalidOperationError:
+            pass
+
+    # Mirror pandas Series.map: unmatched raw labels become null (later 'nan'),
+    # even when their stripped form passed the isin filter above.
+    lf = lf.with_columns(
+        pl.col("meta_data").replace_strict(map_meta, default=pl.lit(None))
+    )
+
+    # Mirror pandas: group cols are fillna'd with 'dummy' and kept as strings,
+    # and null text becomes the 'None' string before joining (pandas astype(str)
+    # on an object/string column produces 'None').
+    lf = lf.with_columns(
+        [pl.col(c).fill_null("dummy").cast(pl.String).alias(c) for c in group_cols]
+        + [
+            pl.col("meta_data").fill_null("nan").cast(pl.String).alias("meta_data"),
+            pl.col("text_data").fill_null("None").cast(pl.String).alias("text_data"),
+        ]
+    )
+
+    agg_lf = (
+        lf.group_by(group_cols + ["meta_data"], maintain_order=True)
+        .agg(pl.col("text_data").str.concat(sep).alias("text_data"))
+    )
+    pivot_df = (
+        agg_lf.collect()
+        .pivot(on="meta_data", index=group_cols, values="text_data", sort_columns=True)
+        .to_pandas()
+    )
+    # Mirror pandas pivot_table, which sorts the resulting index (the group
+    # cols) lexicographically -- the dedup heuristics below depend on row order.
+    pivot_df = pivot_df.sort_values(by=group_cols, kind="mergesort").reset_index(drop=True)
+    return pivot_df, group_cols
+
+
+def deduplicate_pivot_lf(
+    pivot_df: pd.DataFrame, group_cols: list[str], visit_id_col: str
+) -> pd.DataFrame:
+    """Polars replacement for ``deduplicate_pivot``.
+
+    Heuristically collapse any duplicate rows introduced by pivoting, mirroring
+    the pandas version: first row for the mrn/patient/visit cols, first
+    non-'dummy' value for the other group cols, and first non-null value for
+    the pivoted metadata columns.
+    """
+    group_1_cols = ['mrn', 'PATIENT_RESEARCH_ID', visit_id_col]
+    group_2_cols = [c for c in group_cols if c not in group_1_cols]
+    group_3_cols = [c for c in pivot_df.columns if c not in group_cols]
+
+    # The grouping keys are emitted by polars automatically, so only
+    # non-key group_1 cols (e.g. 'mrn') need explicit aggregation.
+    key_cols = ["PATIENT_RESEARCH_ID", visit_id_col]
+
+    agg_exprs = [
+        *(pl.col(c).first().alias(c) for c in group_1_cols
+          if c in pivot_df.columns and c not in key_cols),
+        *(
+            pl.col(c).filter(pl.col(c) != 'dummy').first().fill_null('dummy').alias(c)
+            for c in group_2_cols if c in pivot_df.columns
+        ),
+        *(
+            pl.col(c).drop_nulls().first().alias(c)
+            for c in group_3_cols if c in pivot_df.columns
+        ),
+    ]
+
+    pf = pl.from_pandas(pivot_df)
+    out = (
+        pf.group_by(["PATIENT_RESEARCH_ID", visit_id_col], maintain_order=True)
+        .agg(agg_exprs)
+    ).to_pandas()
+    return out 
+
+
+# ---------------------------------------------------------------------------
 # Clinic-notes specific pre-pivot steps
 # ---------------------------------------------------------------------------
 
@@ -393,6 +582,62 @@ def deduplicate_clinic_metadata(df: pd.DataFrame) -> pd.DataFrame:
     )
     df_grouped["meta_data"] = df_grouped["meta_data"].str.lower()
     return df_grouped
+
+
+def split_metadata_col_clinic_pl(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Polars version of the clinic metadata split; adds meta_data/text_data
+    columns from note_text, mirroring split_metadata_col_clinic row for row."""
+    def _split_row(note_text):
+        meta_data, text_data = split_metadata_col_clinic(note_text)
+        return {"meta_data": meta_data, "text_data": text_data}
+
+    lf = lf.with_columns(
+        pl.col("note_text")
+        .map_elements(
+            _split_row,
+            return_dtype=pl.Struct(
+                [pl.Field("meta_data", pl.String), pl.Field("text_data", pl.String)]
+            ),
+        )
+        .struct.unnest()
+    )
+    return lf
+
+
+def deduplicate_clinic_metadata_pl(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Polars version of deduplicate_clinic_metadata: de-duplicate physician
+    metadata rows and merge text values that share the same metadata category."""
+    lower_strip_meta = pl.col("meta_data").str.to_lowercase().str.strip_chars()
+    lf_other = lf.filter(~lower_strip_meta.is_in(OTHER_METADATA))
+    lf_phys = lf.filter(lower_strip_meta.is_in(OTHER_METADATA))
+    # pandas drop_duplicates preserves row order; polars unique() is hash-based
+    # and reshuffles, which would corrupt the within-group text join order, so
+    # carry an explicit row index and re-sort after de-duplication.
+    lf_phys = (
+        lf_phys.with_row_index("__row_idx")
+        .unique(
+            subset=["PATIENT_RESEARCH_ID", "clinical_note_id", "meta_data", "text_data"],
+            keep="first",
+        )
+        .sort("__row_idx")
+        .drop("__row_idx")
+    )
+    lf = pl.concat([lf_other, lf_phys], how="vertical")
+
+    group_by_cols = [
+        "mrn",
+        "PATIENT_RESEARCH_ID",
+        "clinical_note_id",
+        "code_text",
+        "epr_date",
+        "encounter_reference",
+        "meta_data",
+    ]
+    lf = lf.group_by(group_by_cols, maintain_order=True).agg(
+        pl.col("text_data").str.concat("\n").alias("text_data")
+    )
+    lf = lf.with_columns(pl.col("meta_data").str.to_lowercase())
+    return lf.select(group_by_cols + ["text_data"])
 
 
 # ---------------------------------------------------------------------------
@@ -648,24 +893,18 @@ def process_clinical_notes_pipeline(
     map_meta = {**map_notes_meta, **map_other_meta}
 
     if clinic_notes_dir:
-        # Collect EPR notes to pandas for the split_metadata_col_clinic UDF
-        logger.info("Collecting EPR clinic notes to pandas for metadata splitting ...")
-        df = lf.collect().to_pandas()
-        df[["meta_data", "text_data"]] = pd.DataFrame(
-            df["note_text"].apply(split_metadata_col_clinic).tolist(),
-            index=df.index,
-        )
-        df = df.reset_index(drop=True)
-        df = deduplicate_clinic_metadata(df)
+        # Clinic notes: metadata split, dedup and pivot all stay polars —
+        # only the small per-visit pivoted frame is materialized in pandas.
+        lf = split_metadata_col_clinic_pl(lf)
+        lf = deduplicate_clinic_metadata_pl(lf)
+        pivot_df, group_cols = pivot_metadata_lf(lf, map_meta)
+        pivot_df = deduplicate_pivot_lf(pivot_df, group_cols, visit_id_col)
     else:
-        # Observation: create metadata columns in polars, then collect
+        # Observation: metadata columns, pivot and dedup all stay polars —
+        # only the small per-visit pivoted frame is ever materialized.
         lf = create_metadata_pl(lf)
-        logger.info("Collecting observation notes to pandas ...")
-        df = lf.collect().to_pandas()
-
-    # ---- Filter + pivot (pandas) ----
-    pivot_df, df_meta = filter_and_pivot_metadata(df, map_meta)
-    pivot_df = deduplicate_pivot(pivot_df, df_meta, visit_id_col)
+        pivot_df, group_cols = pivot_metadata_lf(lf, map_meta)
+        pivot_df = deduplicate_pivot_lf(pivot_df, group_cols, visit_id_col)
 
     # ---- Post-pivot cleanup ----
     if clinic_notes_dir:
@@ -763,20 +1002,17 @@ def process_imaging_reports_pipeline(
     lf = combine_text_data_pl(lf, group_cols, "view_area")
     lf = combine_text_data_pl(lf, group_cols, "imaging_note", sep="\n")
 
-    # ---- Collect to pandas for pivot ----
-    logger.info("Collecting imaging data to pandas ...")
-    df = lf.collect().to_pandas()
-
+    # ---- Pivot + dedup (polars; only the small per-visit frame is materialized) ----
     all_imaging_meta = [
         e for e in imaging_meta_normalized
         if e not in ["narrative", "impression", "view", "area"]
     ] + ["narrative_impression", "view_area"]
     map_meta = {e: e for e in all_imaging_meta}
 
-    pivot_df, df_meta = filter_and_pivot_metadata(
-        df, map_meta, metadata_of_interest=all_imaging_meta
+    pivot_df, group_cols = pivot_metadata_lf(
+        lf, map_meta, metadata_of_interest=all_imaging_meta
     )
-    pivot_df = deduplicate_pivot(pivot_df, df_meta, visit_id_col)
+    pivot_df = deduplicate_pivot_lf(pivot_df, group_cols, visit_id_col)
 
     # ---- Aggregate into single imaging_report column ----
     pivot_df = aggregate_imaging_columns(pivot_df, IMAGING_NOTES_METADATA)
@@ -844,7 +1080,8 @@ def process_notes(
 
     # ---- Shared polars steps ----
     is_clinic = note_type == "clinic"
-    lf = scan_raw_parquet(data_dir, file_glob)
+    raw_columns = CLINIC_RAW_COLUMNS if is_clinic else OBSERVATION_RAW_COLUMNS
+    lf = scan_raw_parquet(data_dir, file_glob, columns=raw_columns)
     lf = filter_valid_patient_ids_pl(lf)
     lf, proc_name_col, visit_id_col = rename_columns_pl(lf, is_clinic)
     lf = attach_mrn_pl(lf, mrn_file)
