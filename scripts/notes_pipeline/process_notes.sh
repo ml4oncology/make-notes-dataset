@@ -19,13 +19,13 @@ nCPU=1
 
 # ---------------------------------------------------------------------------
 # Usage: process_notes.sh <data_pull_date> <dir_type> [<data_label>]
-#   dir_type   -- "observation" or "clinic"
+#   dir_type   -- "observation", "clinic", or "imaging"
 #   data_label -- optional label appended to the save directory base
 #                 (e.g. v2 -> .../data_pull_<date>_v2/...)
 # ---------------------------------------------------------------------------
 if [[ $# -lt 2 || $# -gt 3 ]]; then
     echo "Usage: $0 <data_pull_date> <dir_type> [<data_label>]"
-    echo "  dir_type: observation | clinic"
+    echo "  dir_type: observation | clinic | imaging"
     exit 1
 fi
 
@@ -38,16 +38,22 @@ case "$dir_type" in
         data_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/observation_parquet"
         save_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}${data_label:+_${data_label}}/obs_notes_parts"
         last_updated_csv_path="${RAW_DATA_BASE}/data_pull_${data_pull_date}/last_updated_observation.csv"
-        clinic_notes=0
+        note_type="observation"
         ;;
     clinic)
         data_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/clinic_notes_parquet"
         save_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}${data_label:+_${data_label}}/clinic_notes_parts"
         last_updated_csv_path="${RAW_DATA_BASE}/data_pull_${data_pull_date}/last_updated_clinic.csv"
-        clinic_notes=1
+        note_type="clinic"
+        ;;
+    imaging)
+        data_dir="${RAW_DATA_BASE}/data_pull_${data_pull_date}/observation_parquet"
+        save_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}${data_label:+_${data_label}}/obs_notes_parts"
+        last_updated_csv_path="${RAW_DATA_BASE}/data_pull_${data_pull_date}/last_updated_observation.csv"
+        note_type="imaging"
         ;;
     *)
-        echo "Error: dir_type must be 'observation' or 'clinic', got '${dir_type}'"
+        echo "Error: dir_type must be 'observation', 'clinic', or 'imaging', got '${dir_type}'"
         exit 1
         ;;
 esac
@@ -57,10 +63,10 @@ case "$data_pull_date" in
     "2025-01-08")
         mrn_file="${MRN_MAP_DIR}/mrn_map_2Blast_part5.csv"
         case "$dir_type" in
-            observation) 
-                file_glob="2Blast_part5_*_observations.parquet.gzip" 
+            observation | imaging)
+                file_glob="2Blast_part5_*_observations.parquet.gzip"
                 ;;
-            clinic)       
+            clinic)
                 file_glob="2Blast_part5_*_clinic_notes.parquet.gzip"
                 ;;
         esac
@@ -68,11 +74,11 @@ case "$data_pull_date" in
     "2024-06-04")
         mrn_file="${MRN_MAP_DIR}/mrn_map_2Blast_part4.csv"
         case "$dir_type" in
-            observation)  
+            observation | imaging)
                 file_glob="2Blast_part4_*_num_results_with_status_dates.parquet.gzip"
                 ;;
-            clinic)      
-                file_glob="2Blast_part4_*_clinic_notes.parquet.gzip"                
+            clinic)
+                file_glob="2Blast_part4_*_clinic_notes.parquet.gzip"
                 ;;
         esac
         ;;
@@ -84,4 +90,4 @@ esac
 
 ../pySLURMargs.py "$userName" "$memory" "$condaEnv" "$nGPU" \
         "$run_time" "$partition" "$nCPU" \
-        "../../src/notes_pipeline/process_notes.py ${data_dir} ${save_dir} ${mrn_file} ${clinic_notes} ${file_glob} ${last_updated_csv_path}"
+        "../../src/notes_pipeline/process_notes.py ${data_dir} ${save_dir} ${mrn_file} ${note_type} ${file_glob} ${last_updated_csv_path}"

@@ -4,32 +4,41 @@ process_notes.py  —  Polars-accelerated rewrite
 Run ONE job per note type for a given data-pull date:
 
     python process_notes.py <data_dir> <save_dir> <mrn_file>
-                            <clinic_notes_dir> <file_glob>
+                            <note_type> <file_glob>
+
+    note_type: "observation" | "clinic" | "imaging"
 
     e.g. (observation):
         python process_notes.py \
             /cluster/.../observation_parquet \
-            /cluster/.../observation_json \
-            /cluster/.../2025-01-08/obs_notes_parts \
+            /cluster/.../obs_notes_parts \
             /cluster/.../mrn_map_2Blast_part5.csv \
-            0 \
+            observation \
             "2Blast_part5_*_observations.parquet.gzip"
 
     e.g. (clinic):
         python process_notes.py \
             /cluster/.../clinic_notes_parquet \
-            /cluster/.../clinic_notes_json \
-            /cluster/.../2025-01-08/clinic_notes_parts \
+            /cluster/.../clinic_notes_parts \
             /cluster/.../mrn_map_2Blast_part5.csv \
-            1 \
+            clinic \
             "2Blast_part5_*_clinic_notes.parquet.gzip"
+
+    e.g. (imaging):
+        python process_notes.py \
+            /cluster/.../observation_parquet \
+            /cluster/.../obs_notes_parts \
+            /cluster/.../mrn_map_2Blast_part5.csv \
+            imaging \
+            "2Blast_part5_*_observations.parquet.gzip"
 
 Outputs (all in <save_dir>):
   observation mode:
     processed_observation_notes.parquet.gzip
-    processed_pe_dvt_imaging_report.parquet.gzip
   clinic mode:
     processed_clinic_notes.parquet.gzip
+  imaging mode:
+    processed_pe_dvt_imaging_report.parquet.gzip
 """
 
 import sys
@@ -810,13 +819,14 @@ def process_notes(
     data_dir: str,
     save_dir: str,
     mrn_file: str,
-    clinic_notes_dir: bool,
+    note_type: str,
     file_glob: str,
     df_last_updated: pd.DataFrame
 ) -> None:
     """Process all parquet parts for one note type in a single job.
-      - process_clinical_notes_pipeline: consultation/clinic notes saved per
-        the usual observation/clinic-notes filenames.
+
+      - process_clinical_notes_pipeline: observation or clinic notes saved
+        per the usual observation/clinic-notes filenames.
       - process_imaging_reports_pipeline: PE/DVT imaging reports saved
         separately (observation directory only), with the last-updated
         timestamps merged in for later date-resolution in merge_clean_notes.
@@ -825,7 +835,7 @@ def process_notes(
         data_dir           : directory of raw parquet files
         save_dir           : output directory
         mrn_file           : path to the PATIENT_RESEARCH_ID → MRN CSV
-        clinic_notes_dir   : True/1 = clinic notes, False/0 = observations
+        note_type          : "observation" | "clinic" | "imaging"
         file_glob          : glob pattern matching all parquet parts,
                              e.g. "2Blast_part5_*_observations.parquet.gzip"
         df_last_updated    : last_updated dataframe
@@ -833,34 +843,31 @@ def process_notes(
     os.makedirs(save_dir, exist_ok=True)
 
     # ---- Shared polars steps ----
+    is_clinic = note_type == "clinic"
     lf = scan_raw_parquet(data_dir, file_glob)
     lf = filter_valid_patient_ids_pl(lf)
-    lf, proc_name_col, visit_id_col = rename_columns_pl(lf, clinic_notes_dir)
+    lf, proc_name_col, visit_id_col = rename_columns_pl(lf, is_clinic)
     lf = attach_mrn_pl(lf, mrn_file)
 
-    # ---- Clinical notes pipeline ----
+    # ---- Imaging pipeline ----
+    if note_type == "imaging":
+        process_imaging_reports_pipeline(
+            lf=lf,
+            visit_id_col=visit_id_col,
+            save_dir=save_dir,
+            df_last_updated=df_last_updated,
+        )
+        return
+
+    # ---- Clinical notes pipeline (observation or clinic) ----
     process_clinical_notes_pipeline(
         lf=lf,
         proc_name_col=proc_name_col,
         visit_id_col=visit_id_col,
-        clinic_notes_dir=clinic_notes_dir,
+        clinic_notes_dir=is_clinic,
         save_dir=save_dir,
         df_last_updated=df_last_updated
     )
-
-    # ---- Imaging pipeline (observation only) — re-scan ----
-    if not clinic_notes_dir:
-        lf_img = scan_raw_parquet(data_dir, file_glob)
-        lf_img = filter_valid_patient_ids_pl(lf_img)
-        lf_img, _, visit_id_col_img = rename_columns_pl(lf_img, clinic_notes_dir=False)
-        lf_img = attach_mrn_pl(lf_img, mrn_file)
-
-        process_imaging_reports_pipeline(
-            lf=lf_img,
-            visit_id_col=visit_id_col_img,
-            save_dir=save_dir,
-            df_last_updated=df_last_updated,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -875,9 +882,10 @@ if __name__ == "__main__":
     parser.add_argument("save_dir", type=str, help="Output directory")
     parser.add_argument("mrn_file", type=str, help="Path to the MRN map CSV")
     parser.add_argument(
-        "clinic_notes_dir",
-        type=int,
-        help="1 = clinic notes directory, 0 = observation directory",
+        "note_type",
+        type=str,
+        choices=["observation", "clinic", "imaging"],
+        help="Type of notes to process: observation | clinic | imaging",
     )
     parser.add_argument(
         "file_glob",
@@ -900,7 +908,7 @@ if __name__ == "__main__":
         data_dir=args.data_dir,
         save_dir=args.save_dir,
         mrn_file=args.mrn_file,
-        clinic_notes_dir=bool(args.clinic_notes_dir),
+        note_type=args.note_type,
         file_glob=args.file_glob,
         df_last_updated = pd.read_csv(args.last_updated_csv_path)
     )
