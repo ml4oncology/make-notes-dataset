@@ -497,6 +497,11 @@ def pivot_metadata_lf(
     # Mirror pandas pivot_table, which sorts the resulting index (the group
     # cols) lexicographically -- the dedup heuristics below depend on row order.
     pivot_df = pivot_df.sort_values(by=group_cols, kind="mergesort").reset_index(drop=True)
+    # Mirror old pandas output dtype: mrn was numeric in the pivoted frame (the
+    # pandas path only fillna'd nulls with 'dummy', it never string-cast mrn).
+    # The string form is used internally only for the pivot/row-order work above.
+    if "mrn" in pivot_df.columns:
+        pivot_df["mrn"] = pd.to_numeric(pivot_df["mrn"], errors="coerce").astype("Int64")
     return pivot_df, group_cols
 
 
@@ -889,6 +894,9 @@ def process_clinical_notes_pipeline(
             last-updated merge, EPIC integration, final save.
     """
     logger.info(f"Clinical notes pipeline — clinic_notes_dir={clinic_notes_dir}")
+    tag = "cln" if clinic_notes_dir else "obs"
+
+    log_mem(f"{tag} start")
 
     # ---- EPIC split (clinic only) — stays lazy ----
     epic_lf = None
@@ -896,9 +904,11 @@ def process_clinical_notes_pipeline(
         lf = apply_clinic_note_adjustments_pl(lf)
         if "ClinicNotes.ClinicNote.summary" in lf.collect_schema().names():
             lf, epic_lf = split_epic_epr_pl(lf)
+    log_mem(f"{tag} epic split")
 
     # ---- Filter to EPR procedures of interest ----
     lf = lf.filter(pl.col(proc_name_col).str.strip_chars().is_in(PROCEDURE_NAMES_OF_INTEREST_EPR))
+    log_mem(f"{tag} proc filter")
 
     # ---- Build metadata maps ----
     map_notes_meta, map_other_meta = build_metadata_maps()
@@ -908,7 +918,9 @@ def process_clinical_notes_pipeline(
         # Clinic notes: metadata split, dedup and pivot all stay polars —
         # only the small per-visit pivoted frame is materialized in pandas.
         lf = split_metadata_col_clinic_pl(lf)
+        log_mem(f"{tag} meta split")
         lf = deduplicate_clinic_metadata_pl(lf)
+        log_mem(f"{tag} meta dedup")
         pivot_df, group_cols = pivot_metadata_lf(lf, map_meta)
         pivot_df = deduplicate_pivot_lf(pivot_df, group_cols, visit_id_col)
     else:
@@ -917,6 +929,8 @@ def process_clinical_notes_pipeline(
         lf = create_metadata_pl(lf)
         pivot_df, group_cols = pivot_metadata_lf(lf, map_meta)
         pivot_df = deduplicate_pivot_lf(pivot_df, group_cols, visit_id_col)
+    log_mem(f"{tag} pivot")
+    log_mem(f"{tag} dedup")
 
     # ---- Post-pivot cleanup ----
     if clinic_notes_dir:
@@ -925,6 +939,7 @@ def process_clinical_notes_pipeline(
     pivot_df = aggregate_notes_columns(pivot_df, map_notes_meta, clinic_notes_dir)
     pivot_df = apply_date_corrections(pivot_df, clinic_notes_dir)
     pivot_df = process_physician(pivot_df)
+    log_mem(f"{tag} post-pivot")
 
     # ---- Last-updated timestamps (aggregated across all parts) ----
     logger.info("Adding last_updated column ...")
@@ -935,14 +950,17 @@ def process_clinical_notes_pipeline(
             how="left",
             on=["PATIENT_RESEARCH_ID", visit_id_col],
         )
+    log_mem(f"{tag} last_updated")
 
     # ---- Drop newline-only rows ----
     pivot_df = drop_empty_note_rows(pivot_df, note_col="clinical_notes")
+    log_mem(f"{tag} drop empty")
 
     # ---- Merge EPIC notes ----
     if epic_lf is not None:
         logger.info("Processing EPIC notes ...")
         epic_df = epic_lf.collect().to_pandas()
+        log_mem(f"{tag} epic collect")
         if not epic_df.empty:
             epic_notes_processed = process_epic_notes(epic_df)
             if not epic_notes_processed.empty:
@@ -963,6 +981,7 @@ def process_clinical_notes_pipeline(
 
     pivot_df.to_parquet(out_path, compression="gzip", index=False)
     logger.info(f"Saved: {out_path}  ({len(pivot_df):,} rows)")
+    log_mem(f"{tag} save")
 
 
 # ---------------------------------------------------------------------------
