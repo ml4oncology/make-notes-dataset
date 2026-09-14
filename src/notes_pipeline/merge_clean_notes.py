@@ -1,7 +1,9 @@
 import sys
 import os
+import gc
 import argparse
 import logging
+import tracemalloc
 
 import pandas as pd
 
@@ -14,6 +16,26 @@ sys.path.insert(1, "/cluster/projects/gliugroup/2BLAST/data/info")
 from phys_names import aliasDictionary
 
 logger = logging.getLogger(__name__)
+
+try:
+    import psutil
+    _HAS_PSUTIL = True
+except ImportError:
+    _HAS_PSUTIL = False
+
+
+def log_memory(label):
+    """Log current process memory usage before and after a step."""
+    if _HAS_PSUTIL:
+        rss_mb = psutil.Process().memory_info().rss / (1024 ** 2)
+    else:
+        rss_mb = float('nan')
+    current, peak = tracemalloc.get_traced_memory()
+    logger.info(
+        f'[MEM] {label} | RSS: {rss_mb:.0f} MB | '
+        f'tracemalloc current: {current / (1024 ** 2):.1f} MB, '
+        f'peak: {peak / (1024 ** 2):.1f} MB'
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -74,10 +96,13 @@ def load_and_merge_note_types_clinical_notes(obs_notes_dir, clinic_notes_dir):
         os.path.join(obs_notes_dir, 'processed_observation_notes.parquet.gzip'),
         engine='pyarrow', use_nullable_dtypes=True,
     )
+    log_memory('after loading observation notes')
+
     clinic_df = pd.read_parquet(
         os.path.join(clinic_notes_dir, 'processed_clinic_notes.parquet.gzip'),
         engine='pyarrow', use_nullable_dtypes=True,
     )
+    log_memory('after loading clinic notes')
 
     for df in (obs_df, clinic_df):
         df['visit_date'] = pd.to_datetime(df['visit_date'], utc=True)
@@ -93,15 +118,24 @@ def load_and_merge_note_types_clinical_notes(obs_notes_dir, clinic_notes_dir):
     # Align column names before merging
     clinic_df.rename(columns={'code_text': 'Observations.ProcName'}, inplace=True)
 
-    obs_df = obs_df[BASE_COLS_TO_KEEP_CLINICAL_NOTES].copy()
+    obs_df = obs_df[BASE_COLS_TO_KEEP_CLINICAL_NOTES]
 
     clinical_cols = BASE_COLS_TO_KEEP_CLINICAL_NOTES.copy()
     for col in OPTIONAL_COLS:
         if col in clinic_df.columns:
             clinical_cols.append(col)
-    clinic_df = clinic_df[clinical_cols].copy()
+    clinic_df = clinic_df[clinical_cols]
 
-    return pd.concat([obs_df, clinic_df], ignore_index=True)
+    log_memory('before concat observation + clinic')
+    merged_df = pd.concat([obs_df, clinic_df], ignore_index=True)
+
+    # Free the source DataFrames immediately instead of waiting for
+    # the function frame to unwind.
+    del obs_df, clinic_df
+    gc.collect()
+    log_memory('after concat observation + clinic')
+
+    return merged_df
 
 
 def load_imaging_reports(obs_notes_dir):
@@ -116,7 +150,9 @@ def load_imaging_reports(obs_notes_dir):
         os.path.join(obs_notes_dir, 'processed_pe_dvt_imaging_report.parquet.gzip'),
         engine='pyarrow', use_nullable_dtypes=True,
     )
-    img_df = img_df[BASE_COLS_TO_KEEP_IMAGING_REPORTS].copy()
+    log_memory('after loading imaging reports')
+
+    img_df = img_df[BASE_COLS_TO_KEEP_IMAGING_REPORTS]
 
     if 'imaging_report' in img_df.columns:
         img_df['imaging_report'] = img_df['imaging_report'].str.strip()
@@ -146,8 +182,13 @@ def split_epic_epr(notes_df):
         return notes_df, None
 
     notes_df['EPIC_FLAG'] = notes_df['EPIC_FLAG'].apply(lambda x: 1 if x == 1 else 0)
+    log_memory('before splitting EPIC/EPR')
     epic_df = notes_df[notes_df['EPIC_FLAG'] == 1].copy()
     epr_df = notes_df[notes_df['EPIC_FLAG'] != 1].copy()
+
+    del notes_df
+    gc.collect()
+    log_memory('after splitting EPIC/EPR')
     return epr_df, epic_df
 
 
@@ -165,7 +206,7 @@ def resolve_processed_date(notes_df):
     notes_df['date_in_note'] = pd.to_datetime(
         notes_df['date_in_note'], utc=True, format='mixed', errors='coerce'
     )
-    notes_df['processed_date'] = notes_df['date_in_note'].copy()
+    notes_df['processed_date'] = notes_df['date_in_note']
 
     # Replace out-of-range dates with the visit date
     # for EPR notes, if the year is beyond 2022, replace the date with visit date
@@ -177,6 +218,9 @@ def resolve_processed_date(notes_df):
 
     mask_null = notes_df['date_in_note'].isnull()
     notes_df.loc[mask_null, 'processed_date'] = notes_df.loc[mask_null, 'visit_date']
+
+    # Free the intermediate date_in_note column (no longer needed)
+    notes_df.drop(columns=['date_in_note'], inplace=True)
 
     notes_df.rename(columns={'visit_date': 'epr_date'}, inplace=True)
     notes_df['last_updated'] = pd.to_datetime(notes_df['last_updated'], utc=True)
@@ -269,6 +313,7 @@ def deduplicate_by_job_id(notes_df):
 
     duplicated_df = notes_df.loc[notes_df['job_id'].isin(job_id_w_duplicates)].copy()
     duplicated_df.sort_values(by='last_updated', ascending=False, inplace=True)
+
     filtered_records = (
         duplicated_df
         .groupby(['mrn', 'Observations.ProcName', 'job_id'])
@@ -284,7 +329,17 @@ def deduplicate_by_job_id(notes_df):
     n_dropped = duplicated_df.shape[0] - filtered_records.shape[0]
     logger.info(f'Number of duplicate EPR records dropped based on job id: {n_dropped}')
 
+    # Free the sorted duplicated frame (its rows are now in filtered_records)
+    del duplicated_df, df_check, counts
+    gc.collect()
+
     non_duplicated_df = notes_df.loc[~notes_df['job_id'].isin(job_id_w_duplicates)]
+
+    # Free the duplicate-mask list and the source frame; its rows are now in
+    # non_duplicated_df and filtered_records
+    del job_id_w_duplicates, notes_df
+    gc.collect()
+
     return pd.concat([non_duplicated_df, filtered_records]).reset_index()
 
 
@@ -310,7 +365,7 @@ def deduplicate_epr_notes(notes_df):
 def deduplicate_and_clean_epic_notes(epic_df):
     """Deduplicate EPIC notes and apply clinical-note cleaning."""
     before = len(epic_df)
-    epic_df = epic_df.drop_duplicates(subset='clinical_notes').copy()
+    epic_df = epic_df.drop_duplicates(subset='clinical_notes')
     logger.info(f'Duplicates dropped among EPIC notes: {before - len(epic_df)}')
 
     epic_df.rename(columns={'visit_date': 'processed_date'}, inplace=True)
@@ -361,7 +416,7 @@ def filter_medonc_notes(df, unique_aliases):
             df['processed_physician_name'].isin(unique_aliases) &
             df['Observations.ProcName'].str.strip().isin(ANCHORED_PROC_NAMES)
         )
-    return df.loc[mask].copy()
+    return df.loc[mask]
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +436,7 @@ def save_parquet(df, path):
 
 def save_epic_subsets(medonc_df, save_dir):
     """Save the EPIC-only and EPIC-records-only subsets of med-onc notes."""
-    medonc_epic = medonc_df[medonc_df['EPIC_FLAG'] == 1].copy()
+    medonc_epic = medonc_df[medonc_df['EPIC_FLAG'] == 1]
     save_parquet(
         medonc_epic,
         os.path.join(save_dir, 'merged_processed_cleaned_clinical_notes_medonc_only_epic.parquet.gzip'),
@@ -392,7 +447,7 @@ def save_epic_subsets(medonc_df, save_dir):
     mrns_epic = set(medonc_epic['mrn'].unique())
     mrns_only_epic = mrns_epic - mrns_epr
 
-    medonc_epic_only = medonc_epic[medonc_epic['mrn'].isin(mrns_only_epic)].copy()
+    medonc_epic_only = medonc_epic[medonc_epic['mrn'].isin(mrns_only_epic)]
     save_parquet(
         medonc_epic_only,
         os.path.join(save_dir, 'merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip'),
@@ -416,10 +471,13 @@ def merge_clean_notes(save_dir, obs_notes_dir, clinic_notes_dir):
                           and processed_pe_dvt_imaging_report.parquet.gzip
         clinic_notes_dir: directory containing processed_clinic_notes.parquet.gzip
     """
+    tracemalloc.start()
+
     # --- Load and combine all clinical note parts ---
     notes_df = load_and_merge_note_types_clinical_notes(
         obs_notes_dir, clinic_notes_dir
     )
+    log_memory('notes_df loaded and merged')
 
     # --- Load and save pe/dvt imaging reports ---
     img_df = load_imaging_reports(obs_notes_dir)
@@ -427,6 +485,10 @@ def merge_clean_notes(save_dir, obs_notes_dir, clinic_notes_dir):
         select_output_cols(img_df),
         os.path.join(save_dir, 'merged_pe_dvt_imaging_report.parquet.gzip'),
     )
+    # Imaging reports are saved; no longer needed
+    del img_df
+    gc.collect()
+    log_memory('after saving imaging reports')
 
     # --- Separate EPIC notes from EPR notes ---
     notes_df, epic_df = split_epic_epr(notes_df)
@@ -441,6 +503,9 @@ def merge_clean_notes(save_dir, obs_notes_dir, clinic_notes_dir):
     if epic_df is not None:
         epic_df = deduplicate_and_clean_epic_notes(epic_df)
         notes_df = pd.concat([notes_df, epic_df], ignore_index=True)
+        del epic_df
+        gc.collect()
+    log_memory('after merging EPR + EPIC')
 
     # --- Save full merged output ---
     all_notes_output = select_output_cols(notes_df)
@@ -448,12 +513,18 @@ def merge_clean_notes(save_dir, obs_notes_dir, clinic_notes_dir):
         all_notes_output,
         os.path.join(save_dir, 'merged_processed_cleaned_clinical_notes.parquet.gzip'),
     )
+    del all_notes_output
+    gc.collect()
 
     # --- Apply physician alias mapping and filter to med-onc notes ---
     unique_aliases = get_unique_aliases()
     notes_df = apply_alias_mapping(notes_df)
     medonc_df = filter_medonc_notes(notes_df, unique_aliases)
     medonc_output = select_output_cols(medonc_df)
+
+    # notes_df no longer needed after med-onc filter
+    del notes_df, medonc_df
+    gc.collect()
 
     save_parquet(
         medonc_output,
@@ -463,6 +534,8 @@ def merge_clean_notes(save_dir, obs_notes_dir, clinic_notes_dir):
     # --- Save EPIC-specific subsets if the flag column is present ---
     if 'EPIC_FLAG' in medonc_output.columns:
         save_epic_subsets(medonc_output, save_dir)
+
+    log_memory('final')
 
 
 # ---------------------------------------------------------------------------
