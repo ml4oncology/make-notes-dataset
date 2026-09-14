@@ -71,7 +71,7 @@ The consultation notes reside in both directories while imaging reports only res
 
 ```bash
 ./scripts/notes_pipeline/process_notes.sh <data_pull_date> observation
-/scripts/notes_pipeline/process_notes.sh <data_pull_date> imaging
+./scripts/notes_pipeline/process_notes.sh <data_pull_date> imaging
 ./scripts/notes_pipeline/process_notes.sh <data_pull_date> clinic
 ```
 
