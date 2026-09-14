@@ -92,16 +92,26 @@ def load_and_merge_note_types_clinical_notes(obs_notes_dir, clinic_notes_dir):
     exactly one output file. visit_date and last_updated are cast to UTC here
     since they arrive as plain strings/dates from the saved parquet files.
     """
-    obs_df = pd.read_parquet(
-        os.path.join(obs_notes_dir, 'processed_observation_notes.parquet.gzip'),
-        engine='pyarrow', use_nullable_dtypes=True,
-    )
+    log_memory('before loading observation notes')
+    try:
+        obs_df = pd.read_parquet(
+            os.path.join(obs_notes_dir, 'processed_observation_notes.parquet.gzip'),
+            engine='pyarrow', dtype_backend='numpy_nullable',
+        )
+    except MemoryError:
+        log_memory('OOM during observation parquet load')
+        raise
     log_memory('after loading observation notes')
 
-    clinic_df = pd.read_parquet(
-        os.path.join(clinic_notes_dir, 'processed_clinic_notes.parquet.gzip'),
-        engine='pyarrow', use_nullable_dtypes=True,
-    )
+    log_memory('before loading clinic notes')
+    try:
+        clinic_df = pd.read_parquet(
+            os.path.join(clinic_notes_dir, 'processed_clinic_notes.parquet.gzip'),
+            engine='pyarrow', dtype_backend='numpy_nullable',
+        )
+    except MemoryError:
+        log_memory('OOM during clinic parquet load')
+        raise
     log_memory('after loading clinic notes')
 
     for df in (obs_df, clinic_df):
@@ -146,10 +156,15 @@ def load_imaging_reports(obs_notes_dir):
     null, it is resolved from the 'REPORT (... YYYY/MM/DD)' header in the
     imaging report, falling back to the last_updated date.
     """
-    img_df = pd.read_parquet(
-        os.path.join(obs_notes_dir, 'processed_pe_dvt_imaging_report.parquet.gzip'),
-        engine='pyarrow', use_nullable_dtypes=True,
-    )
+    log_memory('before loading imaging reports')
+    try:
+        img_df = pd.read_parquet(
+            os.path.join(obs_notes_dir, 'processed_pe_dvt_imaging_report.parquet.gzip'),
+            engine='pyarrow', dtype_backend='numpy_nullable',
+        )
+    except MemoryError:
+        log_memory('OOM during imaging parquet load')
+        raise
     log_memory('after loading imaging reports')
 
     img_df = img_df[BASE_COLS_TO_KEEP_IMAGING_REPORTS]
