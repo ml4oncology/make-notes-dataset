@@ -10,7 +10,7 @@ source "$_env_file"
 set +a
 
 userName="$CLUSTER_USERNAME"
-memory=512
+memory=128
 condaEnv="$CONDA_PYTHON"
 nGPU=0
 run_time="0-08:00:00"
