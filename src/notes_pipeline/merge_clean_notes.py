@@ -17,6 +17,12 @@ from phys_names import aliasDictionary
 
 logger = logging.getLogger(__name__)
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    force=True,
+)
+
 try:
     import psutil
     _HAS_PSUTIL = True
@@ -31,11 +37,16 @@ def log_memory(label):
     else:
         rss_mb = float('nan')
     current, peak = tracemalloc.get_traced_memory()
-    logger.info(
+    line = (
         f'[MEM] {label} | RSS: {rss_mb:.0f} MB | '
         f'tracemalloc current: {current / (1024 ** 2):.1f} MB, '
         f'peak: {peak / (1024 ** 2):.1f} MB'
     )
+    logger.info(line)
+    # Belt-and-suspenders: emit directly to stderr so the line is visible even
+    # if logging configuration is missing or overridden.
+    sys.stderr.write(line + '\n')
+    sys.stderr.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -487,6 +498,7 @@ def merge_clean_notes(save_dir, obs_notes_dir, clinic_notes_dir):
         clinic_notes_dir: directory containing processed_clinic_notes.parquet.gzip
     """
     tracemalloc.start()
+    log_memory('script start')
 
     # --- Load and combine all clinical note parts ---
     notes_df = load_and_merge_note_types_clinical_notes(
