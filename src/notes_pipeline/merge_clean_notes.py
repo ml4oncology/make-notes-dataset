@@ -449,9 +449,11 @@ def filter_medonc_notes(df, unique_aliases):
 # Output helpers
 # ---------------------------------------------------------------------------
 
-def select_output_cols(df):
+def select_output_cols(df, cols_order=None):
     """Return the dataframe restricted to the desired output column order."""
-    existing = [col for col in FINAL_COLS_ORDER if col in df.columns]
+    if cols_order is None:
+        cols_order = FINAL_COLS_ORDER
+    existing = [col for col in cols_order if col in df.columns]
     return df[existing]
 
 
@@ -509,7 +511,7 @@ def merge_clean_notes(save_dir, obs_notes_dir, clinic_notes_dir):
     # --- Load and save pe/dvt imaging reports ---
     img_df = load_imaging_reports(obs_notes_dir)
     save_parquet(
-        select_output_cols(img_df),
+        select_output_cols(img_df, BASE_COLS_TO_KEEP_IMAGING_REPORTS),
         os.path.join(save_dir, 'merged_pe_dvt_imaging_report.parquet.gzip'),
     )
     # Imaging reports are saved; no longer needed
