@@ -262,7 +262,8 @@ def resolve_imaging_visit_date(img_df):
 
     For rows without a visit date, first try the 'REPORT (... YYYY/MM/DD)'
     header at the top of the imaging report; for any remaining nulls, fall
-    back to the last_updated date (time portion dropped).
+    back to the last_updated timestamp. The column is normalized to a single
+    tz-aware datetime64 dtype before returning.
     """
     mask_null_visit = img_df['visit_date'].isna()
     tot_imaging = len(img_df)
@@ -275,7 +276,7 @@ def resolve_imaging_visit_date(img_df):
     )
     img_header_date = pd.to_datetime(
         img_header_date, utc=True, errors='coerce'
-    ).dt.date
+    )
     n_header_filled = int(img_header_date.notna().sum())
     img_df.loc[mask_null_visit, 'visit_date'] = img_header_date
     n_header_unresolved = int(mask_null_visit.sum()) - n_header_filled
@@ -298,7 +299,6 @@ def resolve_imaging_visit_date(img_df):
         mask_still_null = img_df['visit_date'].isna()
         last_updated_date = (
             pd.to_datetime(img_df.loc[mask_still_null, 'last_updated'], utc=True)
-            .dt.date
         )
         n_last_updated_filled = last_updated_date.notna().sum()
         img_df.loc[mask_still_null, 'visit_date'] = last_updated_date
@@ -317,6 +317,12 @@ def resolve_imaging_visit_date(img_df):
 
     n_still_null = int(img_df['visit_date'].isna().sum())
     logger.info(f'Imaging reports still without a visit date: {n_still_null}')
+
+    # Normalize any mixed Timestamp/date/NaT values to a single tz-aware
+    # datetime64 column so PyArrow can serialize it without failing.
+    img_df['visit_date'] = pd.to_datetime(
+        img_df['visit_date'], utc=True, errors='coerce'
+    )
 
     return img_df
 
