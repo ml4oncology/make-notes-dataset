@@ -127,6 +127,8 @@ Arguments:
 * `<chunk_size>` — number of rows per job; default `500`.
 * `<run_time_hours>` — per-job SLURM run time in hours; default `8`.
 
+The dataframe splitting step runs on the login node with the conda interpreter set by `CONDA_PYTHON` in `.env`; the submitted de-identification jobs run inside the Apptainer container with the `robust_deid` conda environment.
+
 Examples for clinical notes with a labeled directory, and for imaging reports with a custom chunk size and run time:
 
 ```bash

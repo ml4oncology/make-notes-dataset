@@ -29,7 +29,7 @@ data_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}${data_label:+_${dat
 
 # Step 1: Split the dataframe
 echo "Splitting dataframe..."
-split_files=$(python3 ../../src/extract/split_dataframe.py "$data_dir" "$df_name" "$chunk_size")
+split_files=$("$CONDA_PYTHON" ../../src/extract/split_dataframe.py "$data_dir" "$df_name" "$chunk_size")
 
 # Step 2: Create output directories
 mkdir -p logs
