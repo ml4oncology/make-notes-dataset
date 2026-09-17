@@ -20,11 +20,11 @@ data_pull_date="$1"
 data_label="$2"
 
 userName="$CLUSTER_USERNAME"
-memory=16
+memory=64
 condaEnv="$CONDA_PYTHON"
 nGPU=0
 run_time="0-04:00:00"
-partition="all"
+partition="himem"
 
 if [[ $data_pull_date == "2024-06-04" || $data_pull_date == "2025-01-08" ]]; then
     parquet_gzip_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}${data_label:+_${data_label}}"
