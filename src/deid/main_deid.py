@@ -28,6 +28,10 @@ def main(cfg: dict):
     config_file = cfg['config_file']
     eval_batch_size = cfg['eval_batch_size']
 
+    # ensure output directories exist before writing
+    os.makedirs(cfg['ner_dir'], exist_ok=True)
+    os.makedirs(cfg['pred_dir'], exist_ok=True)
+
     # load data frame
     df = read_df(data_dir, df_name)
 

@@ -23,6 +23,8 @@ pretrained_model_path="$DEID_MODEL_PATH"
 config_file="$DEID_CONFIG_FILE"
 eval_batch_size=16
 
+mkdir -p "$data_dir" "$ner_dir" "$pred_dir" "$save_dir"
+
 apptainer exec --nv --bind $data_dir,$ner_dir,$pred_dir,$save_dir $container_path bash -c "
 export MKL_THREADING_LAYER=GNU && \
 export MKL_SERVICE_FORCE_INTEL=1 && \
