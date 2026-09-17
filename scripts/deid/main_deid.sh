@@ -12,30 +12,20 @@ set +a
 set -e
 
 # Input variables
+# Usage: main_deid.sh <data_pull_date> <df_name> [<data_label>] [<chunk_size>] [<run_time_hours>]
 
-if [[ $# -ne 1 ]]; then
-    echo "Usage: $0 <data_pull_date>"
+if [[ $# -lt 2 || $# -gt 5 ]]; then
+    echo "Usage: $0 <data_pull_date> <df_name> [<data_label>] [<chunk_size>] [<run_time_hours>]"
     exit 1
 fi
 
 data_pull_date="$1"
+df_name="$2"
+data_label="$3"
+chunk_size="${4:-500}"
+run_time_hours="${5:-8}"
 
-if [[ $data_pull_date == "2024-06-04" ]]; then
-  # old pull
-  df_name=merged_processed_cleaned_clinical_notes_medonc_only.parquet.gzip
-
-elif [[ $data_pull_date == "2025-01-08" ]]; then
-  # new pull
-  df_name=merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip
-
-else
-    echo "Invalid data_pull_date: $data_pull_date"
-    exit 1
-fi
-
-data_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}"
-
-chunk_size=500
+data_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}${data_label:+_${data_label}}"
 
 # Step 1: Split the dataframe
 echo "Splitting dataframe..."
@@ -48,7 +38,7 @@ mkdir -p logs
 echo "Submitting jobs..."
 for f in $split_files; do
   df_name=$(basename "$f")
-  sbatch job_template_deid.sh "$data_dir/splits" "$df_name"
+  sbatch --time "0-${run_time_hours}:00:00" job_template_deid.sh "$data_dir/splits" "$df_name"
 done
 
 echo "All jobs submitted."

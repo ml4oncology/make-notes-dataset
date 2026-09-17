@@ -11,12 +11,14 @@ set +a
 
 export PATH=$PATH:$(pwd)
 
-if [[ $# -ne 1 ]]; then
-    echo "Usage: $0 <data_pull_date>"
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+    echo "Usage: $0 <data_pull_date> <df_name> [<data_label>]"
     exit 1
 fi
 
 data_pull_date="$1"
+df_name="$2"
+data_label="$3"
 
 userName="$CLUSTER_USERNAME"
 memory=16
@@ -25,11 +27,6 @@ nGPU=0
 run_time="0-04:00:00"
 partition="all"
 
-if [[ $data_pull_date != "2024-06-04" && $data_pull_date != "2025-01-08" ]]; then
-    echo "Invalid data_pull_date: $data_pull_date"
-    exit 1
-fi
+deid_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}${data_label:+_${data_label}}/splits"
 
-deid_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}/splits"
-
-../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../../src/deid/merge_deid_dataframes.py $deid_dir"
+../pySLURMargs.py $userName $memory $condaEnv $nGPU $run_time $partition "../../src/deid/merge_deid_dataframes.py $deid_dir $df_name"

@@ -53,6 +53,8 @@ def main(cfg: dict):
         note_col = 'clinical_notes'
     elif 'note' in df.columns:
         note_col = 'note'
+    elif 'imaging_report' in df.columns:
+        note_col = 'imaging_report'
     else:
         raise Exception("note column not found")
     

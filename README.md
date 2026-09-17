@@ -75,6 +75,13 @@ The consultation notes reside in both directories while imaging reports only res
 ./scripts/notes_pipeline/process_notes.sh <data_pull_date> clinic
 ```
 
+Both `process_notes.sh` and `merge_clean_notes.sh` accept an optional `data_label` argument (e.g. `v2`) appended to the processed data directory, producing paths such as `data_pull_<data_pull_date>_v2`. Use this when the raw and processed data pulls are re-generated:
+
+```bash
+./scripts/notes_pipeline/process_notes.sh <data_pull_date> observation v2
+./scripts/notes_pipeline/merge_clean_notes.sh <data_pull_date> v2
+```
+
 Make sure that you request a high memory node as the above pipeline aggregates multiple parquet files to build a unified parquet file for consultation notes in ```observation``` directory, a unified parquet file for consultation notes in ```clinic notes``` directory, and a unified parquet files for imaging reports.
 
 Then, run the following:
@@ -93,18 +100,49 @@ Robust DeID removes protected health information (PHI) from clinical text using 
 
 The pipeline assumes the input dataset contains:
 * A patient identifier column (e.g. `PATIENT_RESEARCH_ID` or `mrn`)
-* A note text column (e.g. `clinical_notes` or `note`)
+* A note text column (`clinical_notes`, `note`, or `imaging_report` for imaging reports)
 
 ### Running the pipeline
 
-1. **Run de-identification** — execute `scripts/main_deid.sh`, which splits the notes dataset into chunks and submits each to the cluster for GPU-accelerated de-identification:
+The de-identification scripts (`main_deid.sh`, `job_template_deid.sh`, `helper_deid.sh`, `merge_deid_notes.sh`) use relative paths, so run them from within the `scripts/deid/` directory:
 
 ```bash
-./scripts/deid/main_deid.sh <data_pull_date>
+cd scripts/deid
 ```
 
-2. **Merge results** — run `scripts/merge_deid_notes.sh` to merge the de-identified dataframe parts back into a single file:
+1. **Run de-identification** — execute `main_deid.sh`, which splits the notes dataset into chunks and submits each to the cluster for GPU-accelerated de-identification:
+
+```
+Usage: main_deid.sh <data_pull_date> <df_name> [<data_label>] [<chunk_size>] [<run_time_hours>]
+```
 
 ```bash
-./scripts/deid/merge_deid_notes.sh <data_pull_date>
+./main_deid.sh 2025-01-08 merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip
 ```
+
+Arguments:
+* `<data_pull_date>` — the data pull date (e.g. `2025-01-08`).
+* `<df_name>` — the parquet file within `data_pull_<data_pull_date>` to de-identify. For imaging reports, use `merged_pe_dvt_imaging_report.parquet.gzip`.
+* `<data_label>` — optional label appended to the data directory (e.g. `v2` for `data_pull_2025-01-08_v2`).
+* `<chunk_size>` — number of rows per job; default `500`.
+* `<run_time_hours>` — per-job SLURM run time in hours; default `8`.
+
+Examples for clinical notes with a labeled directory, and for imaging reports with a custom chunk size and run time:
+
+```bash
+./main_deid.sh 2025-01-08 merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip v2
+./main_deid.sh 2025-01-08 merged_pe_dvt_imaging_report.parquet.gzip v2 1000 24
+```
+
+2. **Merge results** — run `merge_deid_notes.sh` to merge the de-identified dataframe parts back into a single file. `<df_name>` must match the file name passed to `main_deid.sh`, so only parts belonging to that dataset are merged (imaging reports and clinical notes are therefore kept separate):
+
+```
+Usage: merge_deid_notes.sh <data_pull_date> <df_name> [<data_label>]
+```
+
+```bash
+./merge_deid_notes.sh 2025-01-08 merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip
+./merge_deid_notes.sh 2025-01-08 merged_pe_dvt_imaging_report.parquet.gzip v2
+```
+
+The merged output is saved as `deid_<df_name>.parquet.gzip` in the `splits` directory of the data pull.
