@@ -3,10 +3,23 @@
 
 job_map_file="$1"
 run_log_file="$2"
-poll_interval="${3:-60}"
+third_arg="${3:-60}"
+
+once=0
+poll_interval=60
+if [[ "$third_arg" == "--once" ]]; then
+  once=1
+else
+  poll_interval="$third_arg"
+fi
 
 if [[ -z "$job_map_file" || -z "$run_log_file" ]]; then
-  echo "Usage: $0 <job_map_file> <run_log_file> [poll_interval_seconds]" >&2
+  echo "Usage: $0 <job_map_file> <run_log_file> [poll_interval_seconds | --once]" >&2
+  exit 1
+fi
+
+if [[ ! -f "$job_map_file" ]]; then
+  echo "Error: job map file not found: $job_map_file" >&2
   exit 1
 fi
 
@@ -21,15 +34,20 @@ write_log() {
   job_ids=$(awk -F'\t' 'NR>1 {print $1}' "$job_map_file" | paste -sd,)
 
   declare -A status_map exit_map finished_map
-  while IFS='|' read -r job_id state exit_code; do
+  while IFS='|' read -r job_id state exit_code end_time; do
     # sacct can return sub-job lines like 12345678.batch — skip those
     [[ "$job_id" =~ \. ]] && continue
     status_map["$job_id"]="$state"
     exit_map["$job_id"]="$exit_code"
     if [[ "$state" =~ ^($terminal_states)$ ]]; then
-      finished_map["$job_id"]=$(date '+%Y-%m-%d %H:%M:%S')
+      # Prefer SLURM's recorded end time; fall back to now if unavailable
+      if [[ -n "$end_time" && "$end_time" != "Unknown" ]]; then
+        finished_map["$job_id"]="${end_time/T/ }"
+      else
+        finished_map["$job_id"]=$(date '+%Y-%m-%d %H:%M:%S')
+      fi
     fi
-  done < <(sacct -j "$job_ids" --format=JobID,State,ExitCode --noheader --parsable2 2>/dev/null)
+  done < <(sacct -j "$job_ids" --format=JobID,State,ExitCode,End --noheader --parsable2 2>/dev/null)
 
   {
     echo "=== Deid run: $(basename "$job_map_file" .tsv) ==="
@@ -60,6 +78,14 @@ write_log() {
   echo "$done_count $total"
 }
 
+# One-shot mode: refresh the run log once and exit (used by the finalizer job,
+# and for manual recovery if the background watcher died).
+if [[ "$once" -eq 1 ]]; then
+  read -r done_count total <<< "$(write_log)"
+  echo "Run log refreshed: ${done_count}/${total} jobs finished. Log: $run_log_file"
+  exit 0
+fi
+
 echo "Watching $(awk -F'\t' 'NR>1' "$job_map_file" | wc -l | tr -d ' ') jobs. Log: $run_log_file"
 
 while true; do
@@ -70,4 +96,3 @@ while true; do
   fi
   sleep "$poll_interval"
 done
-

@@ -59,9 +59,25 @@ done <<< "$split_files"
 
 echo "All jobs submitted. Job ID map written to $job_map_file"
 
-# Step 4: Launch background watcher to update run log as jobs complete
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Step 4: Submit a finalizer job that writes the final run log after all jobs finish
+abs_job_map_file="$(cd "$(dirname "$job_map_file")" && pwd)/$(basename "$job_map_file")"
+abs_run_log_file="$(cd "$(dirname "$run_log_file")" && pwd)/$(basename "$run_log_file")"
+abs_log_dir="$(cd "$log_dir" && pwd)"
+dep_ids=$(awk -F'\t' 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}' "$job_map_file" | paste -sd:)
+if [[ -n "$dep_ids" ]]; then
+  finalizer_output=$(sbatch --job-name=deid_finalize --dependency="afterany:${dep_ids}" \
+    --time=00:10:00 --mem=1G --cpus-per-task=1 \
+    --output "${abs_log_dir}/finalize_%j.out" --error "${abs_log_dir}/finalize_%j.err" \
+    --wrap "sleep 30; bash '$script_dir/watch_deid_run.sh' '$abs_job_map_file' '$abs_run_log_file' --once")
+  echo "$finalizer_output"
+  echo "Finalizer job will write the final run log after all jobs end."
+else
+  echo "Warning: no valid job IDs found; skipping finalizer job." >&2
+fi
+
+# Step 5: Launch background watcher for live progress updates
 nohup bash "$script_dir/watch_deid_run.sh" "$job_map_file" "$run_log_file" \
   > "${log_dir}/watcher.log" 2>&1 &
 echo "Run log: $run_log_file (watcher PID: $!)"
-
