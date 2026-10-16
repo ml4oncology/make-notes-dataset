@@ -27,18 +27,41 @@ run_time_hours="${5:-8}"
 
 data_dir="${PROCESSED_DATA_BASE}/data_pull_${data_pull_date}${data_label:+_${data_label}}"
 
-# Step 1: Split the dataframe
+# Step 1: Create output directories and split the dataframe
+run_ts=$(date +%Y%m%d_%H%M%S)
+log_dir="logs/${run_ts}"
+mkdir -p logs "$log_dir"
+split_sizes_file="${log_dir}/split_sizes.tsv"
+
 echo "Splitting dataframe..."
 split_files=$("$CONDA_PYTHON" ../../src/extract/split_dataframe.py "$data_dir" "$df_name" "$chunk_size")
 
-# Step 2: Create output directories
-mkdir -p logs
+echo -e "part_file\tn_rows\ttotal_chars" > "$split_sizes_file"
+while IFS=$'\t' read -r f n_rows total_chars; do
+  echo -e "$(basename "$f")\t${n_rows}\t${total_chars}" >> "$split_sizes_file"
+done <<< "$split_files"
+echo "Split sizes written to $split_sizes_file"
 
 # Step 3: Submit jobs
 echo "Submitting jobs..."
-for f in $split_files; do
+job_map_file="${log_dir}/job_id_map.tsv"
+run_log_file="${log_dir}/run_log.txt"
+echo -e "job_id\tpart_file\tn_rows\ttotal_chars" > "$job_map_file"
+while IFS=$'\t' read -r f n_rows total_chars; do
   df_name=$(basename "$f")
-  sbatch --time "0-${run_time_hours}:00:00" job_template_deid.sh "$data_dir/splits" "$df_name"
-done
+  job_output=$(sbatch --time "0-${run_time_hours}:00:00" \
+    --output "logs/%x_%j.out" --error "logs/%x_%j.err" \
+    job_template_deid.sh "$data_dir/splits" "$df_name")
+  echo "$job_output"
+  job_id=$(echo "$job_output" | awk '{print $NF}')
+  echo -e "${job_id}\t${df_name}\t${n_rows}\t${total_chars}" >> "$job_map_file"
+done <<< "$split_files"
 
-echo "All jobs submitted."
+echo "All jobs submitted. Job ID map written to $job_map_file"
+
+# Step 4: Launch background watcher to update run log as jobs complete
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+nohup bash "$script_dir/watch_deid_run.sh" "$job_map_file" "$run_log_file" \
+  > "${log_dir}/watcher.log" 2>&1 &
+echo "Run log: $run_log_file (watcher PID: $!)"
+

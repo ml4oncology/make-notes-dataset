@@ -21,7 +21,9 @@ pred_dir=${data_dir}/prediction
 save_dir=${data_dir}
 pretrained_model_path="$DEID_MODEL_PATH"
 config_file="$DEID_CONFIG_FILE"
-eval_batch_size=16
+eval_batch_size=8
+gpu_mem=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+echo "GPU memory: ${gpu_mem}MiB"
 
 mkdir -p "$data_dir" "$ner_dir" "$pred_dir" "$save_dir"
 
@@ -29,5 +31,7 @@ apptainer exec --nv --bind $data_dir,$ner_dir,$pred_dir,$save_dir $container_pat
 export MKL_THREADING_LAYER=GNU && \
 export MKL_SERVICE_FORCE_INTEL=1 && \
 export PYTHONPATH='' && \
-conda run -n robust_deid python3 ../../src/deid/main_deid.py \
+export PYTHONUNBUFFERED=1 && \
+source activate robust_deid && \
+python3 -u ../../src/deid/main_deid.py \
 $data_dir $df_name $ner_dir $pred_dir $save_dir $pretrained_model_path $config_file $eval_batch_size"
