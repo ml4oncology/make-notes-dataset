@@ -57,3 +57,8 @@ MANIFEST
 
 # Local environment config
 .env
+
+# Log and run files
+logs/
+log_files/
+scripts/deid/run
