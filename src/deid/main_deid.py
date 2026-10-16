@@ -44,8 +44,6 @@ def main(cfg: dict):
         patient_id_col = cfg['patient_id_col']
     elif 'PATIENT_RESEARCH_ID' in df.columns:
         patient_id_col = 'PATIENT_RESEARCH_ID'
-    elif 'patient_research_id' in df.columns:
-        patient_id_col = 'patient_research_id'
     elif 'mrn' in df.columns:
         patient_id_col = 'mrn'
     else:

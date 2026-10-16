@@ -21,9 +21,7 @@ pred_dir=${data_dir}/prediction
 save_dir=${data_dir}
 pretrained_model_path="$DEID_MODEL_PATH"
 config_file="$DEID_CONFIG_FILE"
-eval_batch_size=8
-gpu_mem=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
-echo "GPU memory: ${gpu_mem}MiB"
+eval_batch_size=16
 
 mkdir -p "$data_dir" "$ner_dir" "$pred_dir" "$save_dir"
 
