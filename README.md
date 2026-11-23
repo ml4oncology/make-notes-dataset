@@ -102,6 +102,46 @@ The pipeline assumes the input dataset contains:
 * A patient identifier column (e.g. `PATIENT_RESEARCH_ID` or `mrn`)
 * A note text column (`clinical_notes`, `note`, or `imaging_report` for imaging reports)
 
+### De-identification container, model, and config
+
+Navigate to the `2BLAST` folder of the `gliugroup` project directory on the cluster, then set the following paths in `.env`:
+
+* `DEID_CONTAINER_PATH` — the Apptainer image, located at `containers/robust-deid-image.sif`.
+* `DEID_MODEL_PATH` — the pretrained de-identification model, located at `LLMS/deid_roberta_i2b2`.
+* `DEID_CONFIG_FILE` — the DeID config file. Save the JSON below as a file (e.g. `deid_config.json`) and point `DEID_CONFIG_FILE` to it:
+
+```json
+{
+"post_process":"argmax",
+"threshold": null,
+"model_name_or_path":"obi/deid_bert_i2b2",
+"task_name":"ner",
+"notation":"BILOU",
+"ner_types":["PATIENT", "STAFF", "AGE", "DATE", "PHONE", "ID", "EMAIL", "PATORG", "LOC", "HOSP", "OTHERPHI"],
+"test_file":"../../data/ner_datasets/test.jsonl",
+"output_predictions_file": "../../data/predictions/predictions.jsonl",
+"truncation":true,
+"max_length":512,
+"label_all_tokens":false,
+"return_entity_level_metrics":true,
+"text_column_name":"tokens",
+"label_column_name":"labels",
+"output_dir":"./run/models",
+"logging_dir":"./run/logs",
+"overwrite_output_dir":false,
+"do_train":false,
+"do_eval":false,
+"do_predict":true,
+"report_to":["tensorboard"],
+"per_device_train_batch_size":0,
+"per_device_eval_batch_size":16,
+"logging_steps":1000,
+"cache_dir":"path/to/cache/dir"
+}
+```
+
+Change the `cache_dir` entry to a path in your own work directory.
+
 ### Running the pipeline
 
 The de-identification scripts (`main_deid.sh`, `job_template_deid.sh`, `helper_deid.sh`, `merge_deid_notes.sh`) use relative paths, so run them from within the `scripts/deid/` directory:
@@ -120,6 +160,8 @@ Usage: main_deid.sh <data_pull_date> <df_name> [<data_label>] [<chunk_size>] [<r
 ./main_deid.sh 2025-01-08 merged_processed_cleaned_clinical_notes_medonc_only_epic_records_only.parquet.gzip
 ```
 
+> **Note:** Run this on a **compute node**, not the login node. Splitting the dataset into chunks requires loading the full notes dataframe into memory; login nodes lack the resources for this. Request an interactive session (e.g. `salloc`) before running `main_deid.sh`.
+
 Arguments:
 * `<data_pull_date>` — the data pull date (e.g. `2025-01-08`).
 * `<df_name>` — the parquet file within `data_pull_<data_pull_date>` to de-identify. For imaging reports, use `merged_pe_dvt_imaging_report.parquet.gzip`.
@@ -127,7 +169,7 @@ Arguments:
 * `<chunk_size>` — number of rows per job; default `500`.
 * `<run_time_hours>` — per-job SLURM run time in hours; default `8`.
 
-The dataframe splitting step runs on the login node with the conda interpreter set by `CONDA_PYTHON` in `.env`; the submitted de-identification jobs run inside the Apptainer container with the `robust_deid` conda environment.
+The dataframe splitting step loads the full dataset into memory in the compute node, using the conda interpreter set by `CONDA_PYTHON` in `.env`; the submitted de-identification jobs run inside the Apptainer container with the `robust_deid` conda environment.
 
 Examples for clinical notes with a labeled directory, and for imaging reports with a custom chunk size and run time:
 
